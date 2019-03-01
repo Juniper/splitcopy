@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-""" Copyright 2018 Juniper Networks, Inc. All rights reserved.
-    Licensed under the Juniper Networks Script Software License (the "License").
-    You may not use this script file except in compliance with the License, 
-    which is located at
-    http://www.juniper.net/support/legal/scriptlicense/
-    Unless required by applicable law or otherwise agreed to in writing by the
-    parties, software distributed under the License is distributed on an "AS IS"
-    BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or 
-    implied.
+""" Copyright (c) 2018, Juniper Networks, Inc
+    All rights reserved
+    This SOFTWARE is licensed under the LICENSE provided in the 
+    ./LICENCE file. By downloading, installing, copying, or otherwise
+    using the SOFTWARE, you agree to be bound by the terms of that
+    LICENSE.
 
     splits a given file into pieces in a tmp directory, copies these to a junos
     host then reassembles them. Tested to be 15x faster to transfer an 845MB
@@ -156,8 +153,8 @@ def main():
                     split_size = str(divmod(file_size, 40)[0])
                 else:
                     # check if JUNOS running BSD10+
-                    # scp to non-occam creates 3 pids per chunk
-                    # scp to occcam creates 2 pids per chunk
+                    # scp to FreeBSD 6 based junoscreates 3 pids per chunk
+                    # scp to FreeBSD 10+ based junos creates 2 pids per chunk
                     # each uid can have max of 64 processes
                     # values here should leave ~24 pid headroom
                     ver = ss.run('uname -i')

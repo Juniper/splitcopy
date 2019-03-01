@@ -50,45 +50,45 @@ In essence, the script initiates CLI commands to deactivate the rate-limit and/o
 # Example
 
 ```
-crj-mbp:splitcopy crj$ ./splitcopy.py ~/Downloads/network-agent-x86-32-17.3R1.10-C1.tgz 172.30.151.104 labroot --scp
+$ ./splitcopy.py ~/Downloads/network-agent-x86-32-17.3R1.10-C1.tgz 192.168.1.1 lab --scp
 Password:
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzap': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzaa': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzak': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzan': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzae': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzaq': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzam': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzaj': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzab': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzac': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzag': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzat': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzal': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzao': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzau': 18 / 18 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzah': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzaf': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzad': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzar': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzas': 67092 / 67092 (100%)
-172.30.151.104: b'network-agent-x86-32-17.3R1.10-C1.tgzai': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzap': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzaa': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzak': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzan': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzae': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzaq': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzam': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzaj': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzab': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzac': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzag': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzat': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzal': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzao': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzau': 18 / 18 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzah': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzaf': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzad': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzar': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzas': 67092 / 67092 (100%)
+192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzai': 67092 / 67092 (100%)
 performing file joins...
 deleting remote tmp directory...
 generating sha1 and verifying...
-file has been successfully copied to 172.30.151.104:/var/tmp/network-agent-x86-32-17.3R1.10-C1.tgz, sha1 matches
+file has been successfully copied to 192.168.1.1:/var/tmp/network-agent-x86-32-17.3R1.10-C1.tgz, sha1 matches
 data transfer time = 0:00:08.462824
 total runtime = 0:00:18.350813
 ```
 
 # NOTES
 
-Post-Occam each scp chunk creates 2 pids on a junos box.  
-Pre-Occam each scp chunk would create 3 pids on a junos box:
+In FreeBSD 10 based releases each scp chunk creates 2 pids on a junos box.  
+In FreeBSD 6 based releases each scp chunk would create 3 pids on a junos box:
 
-labroot 78625  0.0  0.1  2984  2144  ??  Ss    5:29AM   0:00.01 cli -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
-labroot 78626  0.0  0.0  2252  1556  ??  S     5:29AM   0:00.00 sh -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
-labroot 78627  0.0  0.1  3500  1908  ??  S     5:29AM   0:00.01 scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
+lab 78625  0.0  0.1  2984  2144  ??  Ss    5:29AM   0:00.01 cli -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
+lab 78626  0.0  0.0  2252  1556  ??  S     5:29AM   0:00.00 sh -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
+lab 78627  0.0  0.1  3500  1908  ??  S     5:29AM   0:00.01 scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
 
 This could result in maxproc limit being hit with 21 ssh sessions:
 
