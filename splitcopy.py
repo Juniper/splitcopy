@@ -232,7 +232,7 @@ def main():
 def join_files(start_shell, remote_dir, file_name):
     """ concatenates the file chunks into one file
     Args:
-        start_shell - the StartShell object handle
+        start_shell (obj) - the StartShell handle
         remote_dir (str) - path to file on remote host (excluding file_name)
         file_name (str) - name of the file
     Returns:
@@ -255,8 +255,8 @@ def join_files(start_shell, remote_dir, file_name):
 def async_transfer(start_shell, dev, copy_proto, remote_dir, file_name, sfiles, kwargs):
     """ asychronously copies the file chunks to the remote host
     Args:
-        start_shell - the StartShell object handle
-        dev - the device handle
+        start_shell (obj) - the StartShell handle
+        dev (obj) - the device connection
         copy_proto (str) - protocol to be used for file transfer
         remote_dir (str) - path to file on remote host (excluding file_name)
         file_name (str) - name of the file
@@ -294,7 +294,7 @@ def remote_sha1(start_shell, orig_sha1, remote_dir, file_name, host):
     """ creates a sha1 hash for the newly combined file on the remote host
         compares against local sha1
     Args:
-        start_shell - the StartShell object handle
+        start_shell (obj) - the StartShell handle
         orig_sha1 (str) - sha1 hash of the local file
         remote_dir (str) - path to file on remote host (excluding file_name)
         file_name (str) - name of the file
@@ -345,7 +345,7 @@ def split_file(start_shell, copy_proto, file_size, file_path, file_name):
     """ splits file into chunks. The chunk size varies depending on the
         protocol used to copy, and the FreeBSD version
     Args:
-        start_shell - the StartShell object handle
+        start_shell (obj) - the StartShell handle
         copy_proto (str) - name of protocol used to copy files with
         file_size(int) - size of the file to copy
         file_path(str) - full file path
@@ -424,7 +424,7 @@ def storage_check(start_shell, file_size, remote_dir):
     """ checks whether there is enough space on remote node to
         store both the original file and the chunks
     Args:
-        start_shell - the StartShell object handle
+        start_shell (obj) - the StartShell handle
         file_size(int) - size of the file to copy
         remote_dir(str) - directory path on remote node
     Returns:
@@ -552,11 +552,9 @@ def port_check(host, proto, port):
         proto(str) - protocol to connect with
         port(str) - port to connect to
     Returns:
-        True if port is open
-        False if port is closed
+        success (bool) True if port is open, False if port is closed
     Raises:
-        subprocess.TimeoutExpired if timeout occurs
-        subprocess.SubprocessError for generic subprocess errors
+        None
     """
     success = True
     try:
@@ -589,7 +587,7 @@ def limit_check(start_shell, copy_proto):
     ftp or ssh connection/rate limits defined. If found, these configuration lines
     will be deactivated
     Args:
-        start_shell - the StartShell object handle
+        start_shell (obj) - the StartShell handle
         copy_proto (str) - protocol to be used for file transfer
     Returns:
         None
@@ -685,7 +683,10 @@ def limit_check(start_shell, copy_proto):
 def remote_cleanup(start_shell, remote_dir, file_name, announce=True):
     """ delete tmp directory on remote host
     Args:
-        dir(str) - remote directory to remove
+        start_shell (obj) - the StartShell handle
+        remote_dir (str) - path to file on remote host (excluding file_name)
+        file_name (str) - name of the file
+        announce (bool) - determines whether we announce the dir deletion
     Returns:
         True if directory deletion was successful
         False if directory deletion was unsuccessful
