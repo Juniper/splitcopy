@@ -41,6 +41,11 @@
 """
 
 import sys
+
+if sys.version_info < (3, 4):
+    raise RuntimeError("This package requres Python 3.4+")
+
+import asyncio
 import argparse
 import os
 import contextlib
@@ -59,48 +64,27 @@ from jnpr.junos.utils.ftp import FTP
 from jnpr.junos.utils.scp import SCP
 from jnpr.junos.utils.start_shell import StartShell
 
-if sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] < 4):
-    print("Python 3.4 or later required")
-    sys.exit(1)
-else:
-    import asyncio
-
 
 def main():
     """
     Generic main() statement
     """
     parser = argparse.ArgumentParser()
+    parser.add_argument("filepath", help="Path to filename to work on")
+    parser.add_argument("host", help="remote host to connect to")
+    parser.add_argument("user", help="user to authenticate on remote host")
     parser.add_argument(
-        "filepath",
-        help="Path to filename to work on"
+        "-p", "--password", nargs=1, help="password to authenticate on remote host"
     )
     parser.add_argument(
-        "host",
-        help="remote host to connect to"
-    )
-    parser.add_argument(
-        "user",
-        help="user to authenticate on remote host"
-    )
-    parser.add_argument(
-        "-p", 
-        "--password",
-        nargs=1,
-        help="password to authenticate on remote host"
-    )
-    parser.add_argument(
-        "-d",
-        "--remotedir",
-        nargs=1,
-        help="remote host directory to put file"
+        "-d", "--remotedir", nargs=1, help="remote host directory to put file"
     )
     parser.add_argument(
         "-s",
         "--scp",
         action="store_const",
         const="scp",
-        help="use scp to copy files instead of ftp"
+        help="use scp to copy files instead of ftp",
     )
     args = parser.parse_args()
 
@@ -140,30 +124,30 @@ def main():
     if not port_check(host, "ssh", "22"):
         sys.exit(1)
     if args.scp:
-        copy_func = scp_put
+        copy_proto = "scp"
     else:
         if port_check(host, "ftp", "21"):
-            copy_func = ftp_put
+            copy_proto = "ftp"
         else:
-            copy_func = scp_put
+            copy_proto = "scp"
 
     with tempdir():
         # connect to host
         dev = Device(host=host, user=user, passwd=password)
         try:
-            with StartShell(dev) as ss:
+            with StartShell(dev) as start_shell:
                 # cleanup previous tmp directory if found
-                if not remote_cleanup(ss, remote_dir, file_name, False):
+                if not remote_cleanup(start_shell, remote_dir, file_name, False):
                     sys.exit(1)
 
                 # confirm remote storage is sufficient
-                storage_check(ss, file_size, remote_dir)
+                storage_check(start_shell, file_size, remote_dir)
 
                 # get/create sha1 for local file
-                orig_sha1 = sha1_check(ss, file_path)
+                orig_sha1 = sha1_check(file_path)
 
                 # split file into chunks
-                split_file(ss, copy_func, file_size, file_path, file_name)
+                split_file(start_shell, copy_proto, file_size, file_path, file_name)
 
                 sfiles = []
                 for sfile in os.listdir("."):
@@ -171,39 +155,39 @@ def main():
                         sfiles.append(sfile)
 
                 # begin pre transfer checks, check if remote directory exists
-                ss.run("test -d {}".format(remote_dir))
-                if not ss.last_ok:
+                start_shell.run("test -d {}".format(remote_dir))
+                if not start_shell.last_ok:
                     print("remote directory specified does not exist")
                     sys.exit(1)
 
                 # end of pre transfer checks, create tmp directory
-                ss.run("mkdir {}/splitcopy_{}".format(remote_dir, file_name))
-                if not ss.last_ok:
+                start_shell.run("mkdir {}/splitcopy_{}".format(remote_dir, file_name))
+                if not start_shell.last_ok:
                     print("unable to create the tmp directory on remote host")
                     sys.exit(1)
 
                 # begin connection/rate limit check and transfer process
-                if copy_func == ftp_put:
-                    limit_check(ss, "ftp")
+                limit_check(start_shell, copy_proto)
+                if copy_proto == "ftp":
                     kwargs = {"callback": UploadProgress(file_size).handle}
                 else:
-                    limit_check(ss, "ssh")
                     kwargs = {"progress": True, "socket_timeout": 30.0}
 
                 # copy files to remote host
                 loop_start = datetime.datetime.now()
-                async_transfer(ss, dev, copy_func, remote_dir, file_name, sfiles,
-                               kwargs)
+                async_transfer(
+                    start_shell, dev, copy_proto, remote_dir, file_name, sfiles, kwargs
+                )
                 loop_end = datetime.datetime.now()
 
                 # end transfer, combine chunks
-                join_files(ss, remote_dir, file_name)
+                join_files(start_shell, remote_dir, file_name)
 
                 # remove remote tmp dir
-                remote_cleanup(ss, remote_dir, file_name)
+                remote_cleanup(start_shell, remote_dir, file_name)
 
                 # generate a sha1 for the combined file, compare to sha1 of src
-                remote_sha1(ss, orig_sha1, remote_dir, file_name, host)
+                remote_sha1(start_shell, orig_sha1, remote_dir, file_name, host)
 
         except paramiko.ssh_exception.BadAuthenticationType:
             print("authentication type used isnt allowed by the host")
@@ -232,7 +216,7 @@ def main():
             sys.exit(1)
 
         except KeyboardInterrupt:
-            remote_cleanup(ss, remote_dir, file_name)
+            remote_cleanup(start_shell, remote_dir, file_name)
             sys.exit(1)
 
         # and.... we are done
@@ -245,10 +229,10 @@ def main():
         )
 
 
-def join_files(ss, remote_dir, file_name):
+def join_files(start_shell, remote_dir, file_name):
     """ concatenates the file chunks into one file
     Args:
-        ss - the StartShell handle
+        start_shell - the StartShell object handle
         remote_dir (str) - path to file on remote host (excluding file_name)
         file_name (str) - name of the file
     Returns:
@@ -257,25 +241,24 @@ def join_files(ss, remote_dir, file_name):
         None
     """
     print("joining files...")
-    ss.run(
+    start_shell.run(
         "cat {}/splitcopy_{}/* > {}/{}".format(
             remote_dir, file_name, remote_dir, file_name
         ),
         timeout=600,
     )
-    if not ss.last_ok:
+    if not start_shell.last_ok:
         print("failed to combine chunks on remote host")
         sys.exit(1)
 
 
-def async_transfer(ss, dev, copy_func, remote_dir, file_name, sfiles, kwargs):
+def async_transfer(start_shell, dev, copy_proto, remote_dir, file_name, sfiles, kwargs):
     """ asychronously copies the file chunks to the remote host
     Args:
-        ss - the StartShell handle
+        start_shell - the StartShell object handle
         dev - the device handle
-        copy_func (function) - pointer to protocol specific copy function
+        copy_proto (str) - protocol to be used for file transfer
         remote_dir (str) - path to file on remote host (excluding file_name)
-        copy_func (function) - pointer to protocol specific copy function
         file_name (str) - name of the file
         sfiles (list) - list of file chunks to transfer
         kwargs (dict) - named arguments
@@ -291,27 +274,27 @@ def async_transfer(ss, dev, copy_func, remote_dir, file_name, sfiles, kwargs):
         task = loop.run_in_executor(
             None,
             functools.partial(
-                copy_func, dev, sfile, file_name, remote_dir, **kwargs
-            )
+                put_files, dev, sfile, file_name, remote_dir, copy_proto, **kwargs
+            ),
         )
         tasks.append(task)
     try:
         loop.run_until_complete(asyncio.gather(*tasks))
     except scp.SCPException as err:
         print("scp returned the following error:\n{}".format(err))
-        remote_cleanup(ss, remote_dir, file_name)
+        remote_cleanup(start_shell, remote_dir, file_name)
         sys.exit(1)
     except KeyboardInterrupt:
-        remote_cleanup(ss, remote_dir, file_name)
+        remote_cleanup(start_shell, remote_dir, file_name)
         sys.exit(1)
     loop.close()
 
 
-def remote_sha1(ss, orig_sha1, remote_dir, file_name, host):
+def remote_sha1(start_shell, orig_sha1, remote_dir, file_name, host):
     """ creates a sha1 hash for the newly combined file on the remote host
         compares against local sha1
     Args:
-        ss - the StartShell handle
+        start_shell - the StartShell object handle
         orig_sha1 (str) - sha1 hash of the local file
         remote_dir (str) - path to file on remote host (excluding file_name)
         file_name (str) - name of the file
@@ -322,10 +305,12 @@ def remote_sha1(ss, orig_sha1, remote_dir, file_name, host):
         None
     """
     print("generating remote sha1...")
-    ss.run("ls {}/{}".format(remote_dir, file_name))
-    if ss.last_ok:
-        sha1_tuple = ss.run("sha1 {}/{}".format(remote_dir, file_name), timeout=300)
-        if ss.last_ok:
+    start_shell.run("ls {}/{}".format(remote_dir, file_name))
+    if start_shell.last_ok:
+        sha1_tuple = start_shell.run(
+            "sha1 {}/{}".format(remote_dir, file_name), timeout=300
+        )
+        if start_shell.last_ok:
             new_sha1 = sha1_tuple[1].split("\n")[1].split()[3].rstrip()
             if orig_sha1 == new_sha1:
                 print(
@@ -340,7 +325,7 @@ def remote_sha1(ss, orig_sha1, remote_dir, file_name, host):
                     "local and remote sha1 do not match - "
                     "please retry".format(host, remote_dir, file_name)
                 )
-                remote_cleanup(ss, remote_dir, file_name)
+                remote_cleanup(start_shell, remote_dir, file_name)
                 sys.exit(1)
         else:
             print(
@@ -352,16 +337,16 @@ def remote_sha1(ss, orig_sha1, remote_dir, file_name, host):
         print(
             "file {}:{}/{} not found! please retry".format(host, remote_dir, file_name)
         )
-        remote_cleanup(ss, remote_dir, file_name)
+        remote_cleanup(start_shell, remote_dir, file_name)
         sys.exit(1)
 
 
-def split_file(ss, copy_func, file_size, file_path, file_name):
+def split_file(start_shell, copy_proto, file_size, file_path, file_name):
     """ splits file into chunks. The chunk size varies depending on the
         protocol used to copy, and the FreeBSD version
     Args:
-        ss - the StartShell handle
-        copy_func(str) - name of the copy function to use
+        start_shell - the StartShell object handle
+        copy_proto (str) - name of protocol used to copy files with
         file_size(int) - size of the file to copy
         file_path(str) - full file path
         file_name(str) - name of the file to copy
@@ -370,7 +355,7 @@ def split_file(ss, copy_func, file_size, file_path, file_name):
     Raises:
         None
     """
-    if copy_func == ftp_put:
+    if copy_proto == "ftp":
         split_size = str(divmod(file_size, 40)[0])
     else:
         # check if JUNOS running BSD10+
@@ -378,8 +363,8 @@ def split_file(ss, copy_func, file_size, file_path, file_name):
         # scp to FreeBSD 10+ based junos creates 2 pids per chunk
         # each uid can have max of 64 processes
         # values here should leave ~24 pid headroom
-        ver = ss.run("uname -i")
-        if ss.last_ok:
+        ver = start_shell.run("uname -i")
+        if start_shell.last_ok:
             verstring = ver[1].split("\n")[1].rstrip()
             if re.match(r"JNPR", verstring):
                 split_size = str(divmod(file_size, 20)[0])
@@ -408,11 +393,10 @@ def split_file(ss, copy_func, file_size, file_path, file_name):
         sys.exit(1)
 
 
-def sha1_check(ss, file_path):
+def sha1_check(file_path):
     """ checks whether a sha1 already exists for the file
         if not creates one
     Args:
-        ss - the StartShell handle
         file_path(str) - full file path
     Returns:
         orig_sha1(str) - sha1 hash of the file
@@ -436,11 +420,11 @@ def sha1_check(ss, file_path):
     return orig_sha1
 
 
-def storage_check(ss, file_size, remote_dir):
+def storage_check(start_shell, file_size, remote_dir):
     """ checks whether there is enough space on remote node to
         store both the original file and the chunks
     Args:
-        ss - the StartShell handle
+        start_shell - the StartShell object handle
         file_size(int) - size of the file to copy
         remote_dir(str) - directory path on remote node
     Returns:
@@ -449,8 +433,8 @@ def storage_check(ss, file_size, remote_dir):
         None
     """
     print("checking remote storage...")
-    df_tuple = ss.run("df {}".format(remote_dir))
-    if not ss.last_ok:
+    df_tuple = start_shell.run("df {}".format(remote_dir))
+    if not start_shell.last_ok:
         print("failed to determine remote disk space available")
         sys.exit(1)
     avail_blocks = df_tuple[1].split("\n")[2].split()[3].rstrip()
@@ -465,38 +449,26 @@ def storage_check(ss, file_size, remote_dir):
         sys.exit(1)
 
 
-def ftp_put(dev, sfile, file_name, remote_dir, **kwargs):
-    """ copies file to remote host via ftp
+def put_files(dev, sfile, file_name, remote_dir, copy_proto, **kwargs):
+    """ copies files to remote host via ftp or scp
     Args:
         dev - the ssh connection handle
         sfile(str) - name of the file to copy
         file_name(str) - part of directory name
         remote_dir (str) - path to file on remote host (excluding file_name)
+        copy_proto (str) - name of protocol used to copy files with
         kwargs (dict) - named arguments
     Returns:
         None
     Raises:
         None
     """
-    with FTP(dev, **kwargs) as ftp:
-        ftp.put(sfile, "{}/splitcopy_{}/".format(remote_dir, file_name))
-
-
-def scp_put(dev, sfile, file_name, remote_dir, **kwargs):
-    """ copies file to remote host via scp
-    Args:
-        dev - the ssh connection handle
-        sfile(str) - name of the file to copy
-        file_name(str) - part of directory name
-        remote_dir (str) - path to file on remote host (excluding file_name)
-        kwargs (dict) - named arguments
-    Returns:
-        None
-    Raises:
-        None
-    """
-    with SCP(dev, **kwargs) as scp:
-        scp.put(sfile, "{}/splitcopy_{}/".format(remote_dir, file_name))
+    if copy_proto == "ftp":
+        with FTP(dev, **kwargs) as ftp:
+            ftp.put(sfile, "{}/splitcopy_{}/".format(remote_dir, file_name))
+    else:
+        with SCP(dev, **kwargs) as scp:
+            scp.put(sfile, "{}/splitcopy_{}/".format(remote_dir, file_name))
 
 
 class UploadProgress:
@@ -512,6 +484,7 @@ class UploadProgress:
 
     def handle(self, arg=None):
         """ For every 10% of data transferred, notifies the user
+        'arg' is used to keep python3.4 from complaining about number of args
         Args:
             self
         Returns:
@@ -611,17 +584,13 @@ def port_check(host, proto, port):
     return success
 
 
-def limit_check(ss, con_type):
-    """
-    Reads the inetd configuration file to determine whether there are any
-    FTP/SSH connection and/or rate limits set in the end device's configuration.
-    If a limit is found, the script will deactivate the specific line in the
-    configuration to prevent any issues.
+def limit_check(start_shell, copy_proto):
+    """ Checks the remote hosts /etc/inetd file to determine whether there are any
+    ftp or ssh connection/rate limits defined. If found, these configuration lines
+    will be deactivated
     Args:
-        ssh(StartShell Object): Shell session to end device established earlier
-        in execution.
-
-        con_type(str): Specifies type of connection that will be established.
+        start_shell - the StartShell object handle
+        copy_proto (str) - protocol to be used for file transfer
     Returns:
         None
     Raises:
@@ -629,15 +598,16 @@ def limit_check(ss, con_type):
         a real exception is thrown due to some unknown error.
     """
 
-    inetd = ss.run("cat /etc/inetd.conf", timeout=300)
-    if not ss.last_ok:
+    inetd = start_shell.run("cat /etc/inetd.conf", timeout=300)
+    if not start_shell.last_ok:
         print(
-            "Error: failed to read /etc/inetd.conf, cant determine connection" " limits"
+            "Error: failed to read /etc/inetd.conf, "
+            "can't determine whether ssh or ftp connection limits are configured"
         )
         sys.exit(1)
-    port_conf = []
 
-    if con_type == "ftp":
+    port_conf = []
+    if copy_proto == "ftp":
         port_conf.append(re.search(r"ftp stream tcp\/.*", inetd[1]).group(0))
         port_conf.append(re.search(r"ssh stream tcp\/.*", inetd[1]).group(0))
     else:
@@ -656,12 +626,12 @@ def limit_check(ss, con_type):
                 print(
                     "{} configured connection-limit is under 25".format(p_name.upper())
                 )
-                d_config = ss.run(
+                d_config = start_shell.run(
                     'cli -c "show configuration | display set '
                     '| grep {} | grep connection-limit"'.format(p_name)
                 )
                 if (
-                    ss.last_ok
+                    start_shell.last_ok
                     and re.search(r"connection-limit", d_config[1]) is not None
                 ):
                     d_config = d_config[1].split("\r\n")[1]
@@ -673,11 +643,14 @@ def limit_check(ss, con_type):
 
             if rate_lim < 100:
                 print("{} configured rate limit is under 100".format(p_name.upper()))
-                d_config = ss.run(
+                d_config = start_shell.run(
                     'cli -c "show configuration | display set '
                     '| grep {} | grep rate-limit"'.format(p_name)
                 )
-                if ss.last_ok and re.search(r"rate-limit", d_config[1]) is not None:
+                if (
+                    start_shell.last_ok
+                    and re.search(r"rate-limit", d_config[1]) is not None
+                ):
                     d_config = d_config[1].split("\r\n")[1]
                     d_config = re.sub(" [0-9]+$", "", d_config)
                     d_config = re.sub("set", "deactivate", d_config)
@@ -686,15 +659,17 @@ def limit_check(ss, con_type):
                     raise Exception
 
         except Exception:
-            print("Error: failed to determine configured limits, " "cannot proceed")
+            print("Error: failed to determine configured limits, cannot proceed")
             sys.exit(1)
 
     try:
         # if limits were configured, deactivate them
         if command_list:
-            ss.run('cli -c "edit;{}commit and-quit"'.format("".join(command_list)))
+            start_shell.run(
+                'cli -c "edit;{}commit and-quit"'.format("".join(command_list))
+            )
 
-            if ss.last_ok:
+            if start_shell.last_ok:
                 print(
                     "NOTICE: the configuration has been modified. "
                     "deactivated the limit(s) found"
@@ -707,7 +682,7 @@ def limit_check(ss, con_type):
         sys.exit(1)
 
 
-def remote_cleanup(ss, remote_dir, file_name, announce=True):
+def remote_cleanup(start_shell, remote_dir, file_name, announce=True):
     """ delete tmp directory on remote host
     Args:
         dir(str) - remote directory to remove
@@ -719,8 +694,8 @@ def remote_cleanup(ss, remote_dir, file_name, announce=True):
     """
     if announce:
         print("deleting remote tmp directory...")
-    ss.run("rm -rf {}/splitcopy_{}".format(remote_dir, file_name), timeout=300)
-    if not ss.last_ok:
+    start_shell.run("rm -rf {}/splitcopy_{}".format(remote_dir, file_name), timeout=300)
+    if not start_shell.last_ok:
         print(
             "unable to delete the tmp directory on remote host," " delete it manually"
         )
