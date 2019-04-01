@@ -164,11 +164,7 @@ def main():
         try:
             with StartShell(dev) as start_shell:
                 # cleanup previous tmp directory if found
-                try:
-                    remote_cleanup(start_shell, remote_dir, file_name, True)
-                except StartShellFail as err:
-                    print(err)
-                    pass
+                remote_cleanup(start_shell, remote_dir, file_name, True)
 
                 # confirm remote storage is sufficient
                 storage_check(start_shell, file_size, remote_dir)
@@ -228,29 +224,18 @@ def main():
                     loop.run_until_complete(asyncio.gather(*tasks))
                 except scp.SCPException as err:
                     print("an scp error occurred, the error was {}".format(err))
-                    try:
-                        remote_cleanup(start_shell, remote_dir, file_name)
-                    except StartShellFail as err:
-                        print(err)
-                    finally:
-                        os._exit(1)  # SystemExit will not stop asyncio loop
+                    remote_cleanup(start_shell, remote_dir, file_name)
+                    os._exit(1)  # SystemExit will not stop asyncio loop
                 except KeyboardInterrupt:
-                    try:
-                        remote_cleanup(start_shell, remote_dir, file_name)
-                    except StartShellFail as err:
-                        print(err)
-                    finally:
-                        os._exit(1)  # SystemExit will not stop asyncio loop
+                    remote_cleanup(start_shell, remote_dir, file_name)
+                    os._exit(1)  # SystemExit will not stop asyncio loop
                 except:
                     print(
-                        "an error occurred while copying the files to the remote host, please retry"
+                        "an error occurred while copying the files to the remote host"
+                        ", please retry"
                     )
-                    try:
-                        remote_cleanup(start_shell, remote_dir, file_name)
-                    except StartShellFail as err:
-                        print(err)
-                    finally:
-                        os._exit(1)  # SystemExit will not stop asyncio loop
+                    remote_cleanup(start_shell, remote_dir, file_name)
+                    os._exit(1)  # SystemExit will not stop asyncio loop
                 finally:
                     loop.close()
                 print("transfer complete")
@@ -260,15 +245,12 @@ def main():
                 try:
                     join_files(start_shell, remote_dir, file_name)
                 except StartShellFail as err:
+                    print(err)
                     remote_cleanup(start_shell, remote_dir, file_name)
                     raise SystemExit(1)
 
                 # remove remote tmp dir
-                try:
-                    remote_cleanup(start_shell, remote_dir, file_name)
-                except StartShellFail as err:
-                    print(err)
-                    pass
+                remote_cleanup(start_shell, remote_dir, file_name)
 
                 # generate a sha1 for the combined file, compare to sha1 of src
                 remote_sha1(start_shell, orig_sha1, remote_dir, file_name, host)
@@ -358,10 +340,11 @@ def remote_sha1(start_shell, orig_sha1, remote_dir, file_name, host):
     )
     if not start_shell.last_ok:
         print(
-            "remote sha1 verification didn't complete, "
+            "remote sha1 verification failed or timed out, "
             'manually check the output of "sha1 <file>" and '
             "compare against {}".format(orig_sha1)
         )
+        return
     new_sha1 = sha1_tuple[1].split("\n")[1].split()[3].rstrip()
     if orig_sha1 == new_sha1:
         print(
@@ -716,7 +699,7 @@ def remote_cleanup(start_shell, remote_dir, file_name, silent=False):
         print("deleting remote tmp directory...")
     start_shell.run("rm -rf {}/splitcopy_{}".format(remote_dir, file_name), timeout=10)
     if not start_shell.last_ok:
-        raise StartShellFail(
+        print(
             "unable to delete the tmp directory {}/splitcopy_{} on remote host, "
             "delete it manually".format(remote_dir, file_name)
         )
