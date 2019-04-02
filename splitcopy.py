@@ -233,8 +233,8 @@ class SPLITCOPY(object):
             Raises:
                 SystemExit upon connection errors
         """
-        self.dev = Device(host=self.host, user=self.user, passwd=self.password)
         try:
+            self.dev = Device(host=self.host, user=self.user, passwd=self.password)
             with StartShell(self.dev) as self.start_shell:
                 # cleanup previous remote tmp directory if found
                 self.remote_cleanup(True)
@@ -259,8 +259,8 @@ class SPLITCOPY(object):
                     self.start_shell.run("test -d {}".format(self.remote_dir))
                     if not self.start_shell.last_ok:
                         self.close(
-                            err_str="remote directory specified does not exist"
-                            not_remote=True
+                            err_str="remote directory specified does not exist",
+                            not_remote=True,
                         )
 
                     # end of pre transfer checks, create tmp directory
@@ -269,8 +269,8 @@ class SPLITCOPY(object):
                     )
                     if not self.start_shell.last_ok:
                         self.close(
-                            err_str="unable to create the tmp directory on remote host"
-                            not_remote=True
+                            err_str="unable to create the tmp directory on remote host",
+                            not_remote=True,
                         )
 
                     # begin connection/rate limit check and transfer process
@@ -503,8 +503,8 @@ class SPLITCOPY(object):
             )
         except subprocess.TimeoutExpired:
             self.close(
-                err_str="local file splitting operation timed out after 10 mins"
-                not_remote=True
+                err_str="local file splitting operation timed out after 10 mins",
+                not_remote=True,
             )
         except subprocess.SubprocessError as err:
             err_str=(
@@ -549,22 +549,29 @@ class SPLITCOPY(object):
         Returns:
             None
         Raises:
-            SystemExit - remote shell cmd returned an exit code > 0
+            None
         """
         print("checking remote storage...")
         df_tuple = self.start_shell.run("df {}".format(self.remote_dir))
         if not self.start_shell.last_ok:
-            raise SystemExit("failed to determine remote disk space available")
+            self.close(
+                err_str="failed to determine remote disk space available",
+                not_remote=True,
+                not_local=True,
+            )
         avail_blocks = df_tuple[1].split("\n")[2].split()[3].rstrip()
         avail_bytes = int(avail_blocks) * 512
         if self.file_size * 2 > avail_bytes:
-            err=(
-                "not enough space on remote host. Available space "
-                "must be 2x the original file size because it has to "
-                "store the file chunks and the whole file at the "
-                "same time"
+            self.close(
+                err_str=(
+                    "not enough space on remote host. Available space "
+                    "must be 2x the original file size because it has to "
+                    "store the file chunks and the whole file at the "
+                    "same time"
+                ),
+                not_remote=True,
+                not_local=True,
             )
-            self.close(err_str=err, not_remote=True, not_local=True)
 
     def put_files(self, sfile, **kwargs):
         """ copies files to remote host via ftp or scp
@@ -575,7 +582,7 @@ class SPLITCOPY(object):
         Returns:
             None
         Raises:
-            None
+            re-raises any exception
         """
         if self.copy_proto == "ftp":
             with FTP(self.dev, **kwargs) as ftp_proto:
@@ -650,7 +657,7 @@ class SPLITCOPY(object):
         Returns:
             None
         Raises:
-            StartShellFail - if any of the start_shell commands fail
+            StartShellFail - if any of the start_shell commands fail or time out
         """
 
         inetd = self.start_shell.run("cat /etc/inetd.conf", timeout=300)
