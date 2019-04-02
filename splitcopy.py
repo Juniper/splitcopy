@@ -47,7 +47,6 @@ import os
 import contextlib
 import datetime
 import fnmatch
-import ftplib
 import functools
 import getpass
 import re
@@ -55,8 +54,8 @@ import shutil
 import tempfile
 import signal
 import subprocess
-import scp
 import warnings
+import scp
 from paramiko.ssh_exception import SSHException
 from paramiko.ssh_exception import ChannelException
 from paramiko.ssh_exception import BadHostKeyException
@@ -72,8 +71,7 @@ warnings.simplefilter("ignore", utils.CryptographyDeprecationWarning)
 
 
 def main():
-    """
-    Generic main() statement
+    """ body of script
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("filepath", help="Path to filename to work on")
@@ -184,13 +182,23 @@ def main():
                 # begin pre transfer checks, check if remote directory exists
                 start_shell.run("test -d {}".format(remote_dir))
                 if not start_shell.last_ok:
-                    raise SystemExit("remote directory specified does not exist")
+                    close(
+                        dev,
+                        start_shell,
+                        remote_dir,
+                        file_name,
+                        err_str="remote directory specified does not exist",
+                    )
 
                 # end of pre transfer checks, create tmp directory
                 start_shell.run("mkdir {}/splitcopy_{}".format(remote_dir, file_name))
                 if not start_shell.last_ok:
-                    raise SystemExit(
-                        "unable to create the tmp directory on remote host"
+                    close(
+                        dev,
+                        start_shell,
+                        remote_dir,
+                        file_name,
+                        err_str="unable to create the tmp directory on remote host",
                     )
 
                 # begin connection/rate limit check and transfer process
@@ -223,19 +231,26 @@ def main():
                 try:
                     loop.run_until_complete(asyncio.gather(*tasks))
                 except scp.SCPException as err:
-                    print("an scp error occurred, the error was {}".format(err))
-                    remote_cleanup(start_shell, remote_dir, file_name)
-                    os._exit(1)  # SystemExit will not stop asyncio loop
-                except KeyboardInterrupt:
-                    remote_cleanup(start_shell, remote_dir, file_name)
-                    os._exit(1)  # SystemExit will not stop asyncio loop
-                except:
-                    print(
-                        "an error occurred while copying the files to the remote host"
-                        ", please retry"
+                    close(
+                        dev,
+                        start_shell,
+                        remote_dir,
+                        file_name,
+                        err_str="an scp error occurred, the error was {}".format(err),
+                        hard=True,
                     )
-                    remote_cleanup(start_shell, remote_dir, file_name)
-                    os._exit(1)  # SystemExit will not stop asyncio loop
+                except KeyboardInterrupt:
+                    close(dev, start_shell, remote_dir, file_name, hard=True)
+                except:
+                    close(
+                        dev,
+                        start_shell,
+                        remote_dir,
+                        file_name,
+                        err_str="an error occurred while copying the files to the "
+                        "remote host, please retry",
+                        hard=True,
+                    )
                 finally:
                     loop.close()
                 print("transfer complete")
@@ -245,9 +260,7 @@ def main():
                 try:
                     join_files(start_shell, remote_dir, file_name)
                 except StartShellFail as err:
-                    print(err)
-                    remote_cleanup(start_shell, remote_dir, file_name)
-                    raise SystemExit(1)
+                    close(dev, start_shell, remote_dir, file_name, err_str=err)
 
                 # remove remote tmp dir
                 remote_cleanup(start_shell, remote_dir, file_name)
@@ -287,8 +300,47 @@ def main():
 
 
 def signal_bail():
+    """ if a signal is recevied while copying files to host we must quit
+        as file cannot be recombined.
+        Downside of this is that there is no cleanup of local or remote temp dirs,
+        and the TCP session will be left half-open...
+        Would be better if we could retry the failed chunk... WIP
+        Args:
+            None
+        Returns:
+            None
+        Raises:
+            os._exit - terminates the script (and asyncio loop)
+    """
     print("signal received, transfer has failed - please retry")
-    os._exit(1)
+    raise os._exit(1)
+
+
+def close(dev, start_shell, remote_dir, file_name, err_str=None, hard=False):
+    """ Called when we want to exit the script, after deleting the remote
+        temp directory and closing the TCP session to the remote host.
+        If using SystemExit, contextmanager will delete the local temp directory
+        Args:
+            dev(obj) - the ssh connection handle
+            start_shell (obj) - the StartShell handle
+            remote_dir (str) - path to file on remote host (excluding file_name)
+            file_name (str) - name of the file
+            err_str(str) - error description
+            hard(bool) - determines whether we exit gracefully or not
+        Returns:
+            None
+        Raises either:
+            SystemExit - terminates the script gracefully
+            os._exit - terminates the script immediately
+    """
+    if err_str:
+        print(err_str)
+    remote_cleanup(start_shell, remote_dir, file_name)
+    dev.close()
+    if hard:
+        raise os._exit(1)
+    else:
+        raise SystemExit(1)
 
 
 def join_files(start_shell, remote_dir, file_name):
@@ -491,6 +543,8 @@ def put_files(dev, sfile, file_name, remote_dir, copy_proto, **kwargs):
 
 
 class StartShellFail(Exception):
+    """ custom exception class 
+    """
     pass
 
 
@@ -551,19 +605,19 @@ def tempdir():
     defines how to delete directory upon script exit
     Args:
     Returns:
-        dirpath(str): path to temp directory
+        local_tmpdir(str): path to temp directory
     Raises:
         None
     """
-    dirpath = tempfile.mkdtemp()
+    local_tmpdir = tempfile.mkdtemp()
 
     def cleanup():
         """ deletes temp dir
         """
-        shutil.rmtree(dirpath)
+        shutil.rmtree(local_tmpdir)
 
-    with change_dir(dirpath, cleanup):
-        yield dirpath
+    with change_dir(local_tmpdir, cleanup):
+        yield local_tmpdir
 
 
 def port_check(host, port):
