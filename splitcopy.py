@@ -480,7 +480,7 @@ class SPLITCOPY(object):
             # 3.4 and 3.5 will only do 5 simultaneous transfers
             self.split_size = str(divmod(self.file_size, 5)[0])
             return
-        
+
         cpu_count = 1
         try:
             cpu_count = multiprocessing.cpu_count()
@@ -494,18 +494,14 @@ class SPLITCOPY(object):
         # values here will leave min 24 processes headroom
 
         if cpu_count == 1:
-            ftp_max, scp_bsd10_max, scp_bsd6_max = 5
+            ftp_max, scp_bsd10_max, scp_bsd6_max = 5, 5, 5
         elif cpu_count == 2:
-            ftp_max, scp_bsd10_max, scp_bsd6_max = 10
+            ftp_max, scp_bsd10_max, scp_bsd6_max = 10, 10, 10
         elif cpu_count == 4:
-            ftp_max = 20
-            scp_bsd10_max = 20
-            scp_bsd6_max = 13
+            ftp_max, scp_bsd10_max, scp_bsd6_max = 20, 20, 13
         else:
-            ftp_max = 40
-            scp_bsd10_max = 20
-            scp_bsd6_max = 13
-            
+            ftp_max, scp_bsd10_max, scp_bsd6_max = 40, 20, 13
+
         if self.copy_proto == "ftp":
             self.split_size = str(divmod(self.file_size, ftp_max)[0])
             return
