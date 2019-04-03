@@ -525,7 +525,7 @@ class SPLITCOPY(object):
             None
         """
         if os.path.isfile(self.file_path + ".sha1"):
-            sha1file = open(file_path + ".sha1", "r")
+            sha1file = open(self.file_path + ".sha1", "r")
             self.orig_sha1 = sha1file.read().rstrip()
         else:
             print("sha1 not found, generating sha1...")
