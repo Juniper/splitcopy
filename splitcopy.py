@@ -40,7 +40,7 @@
 import sys
 
 if sys.version_info < (3, 4):
-    raise RuntimeError("This package requires Python 3.4+")
+    raise RuntimeError("This script requires Python 3.4+")
 import asyncio
 import argparse
 import os
@@ -48,6 +48,7 @@ import datetime
 import fnmatch
 import functools
 import getpass
+import multiprocessing
 import re
 import shutil
 import tempfile
@@ -245,6 +246,9 @@ class SPLITCOPY(object):
                 # get/create sha1 for local file
                 self.sha1_check()
 
+                # determine optimal size for chunks
+                self.split_size()
+
                 with self.tempdir():
                     # split file into chunks
                     self.split_file()
@@ -368,7 +372,6 @@ class SPLITCOPY(object):
         err = "signal received, transfer has failed - please retry"
         self.close(err_str=err, hard=True)
 
-
     def close(self, err_str=None, hard=False, not_remote=False, not_local=False):
         """ Called when we want to exit the script
             attempts to delete the remote temp directory and close the TCP session
@@ -400,7 +403,6 @@ class SPLITCOPY(object):
         else:
             raise SystemExit(1)
 
-
     def join_files(self):
         """ concatenates the file chunks into one file
         Args:
@@ -420,7 +422,6 @@ class SPLITCOPY(object):
         if not self.start_shell.last_ok:
             raise StartShellFail("failed to combine chunks on remote host")
 
-
     def remote_sha1(self):
         """ creates a sha1 hash for the newly combined file on the remote host
             compares against local sha1
@@ -434,10 +435,8 @@ class SPLITCOPY(object):
         print("generating remote sha1...")
         self.start_shell.run("ls {}/{}".format(self.remote_dir, self.file_name))
         if not self.start_shell.last_ok:
-            err=(
-                "file {}:{}/{} not found! please retry".format(
-                    self.host, self.remote_dir, self.file_name
-                )
+            err = "file {}:{}/{} not found! please retry".format(
+                self.host, self.remote_dir, self.file_name
             )
             self.close(err_str=err, not_remote=True)
         sha1_tuple = self.start_shell.run(
@@ -459,12 +458,66 @@ class SPLITCOPY(object):
                 )
             )
         else:
-            err=("file has been copied to {}:{}/{}, but the "
+            err = (
+                "file has been copied to {}:{}/{}, but the "
                 "local and remote sha1 do not match - "
                 "please retry".format(self.host, self.remote_dir, self.file_name)
             )
             self.close(err_str=err, not_remote=True)
 
+    def split_size(self):
+        """ The chunk size depends on the python version, cpu count, 
+            the protocol used to copy and the FreeBSD version
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            None
+        Raises:
+            None
+        """
+        verstring = None
+        if sys.version_info < (3, 6):
+            # 3.4 and 3.5 will only do 5 simultaneous transfers
+            self.split_size = str(divmod(self.file_size, 5)[0])
+            return
+        
+        cpu_count = 1
+        try:
+            cpu_count = multiprocessing.cpu_count()
+        except NotImplementedError:
+            pass
+
+        # ftp creates 1 user process per chunk
+        # scp to FreeBSD 6 based junos creates 3 user processes per chunk
+        # scp to FreeBSD 10+ based junos creates 2 user processes per chunk
+        # each uid can have max of 64 processes
+        # values here will leave min 24 processes headroom
+
+        if cpu_count == 1:
+            ftp_max, scp_bsd10_max, scp_bsd6_max = 5
+        elif cpu_count == 2:
+            ftp_max, scp_bsd10_max, scp_bsd6_max = 10
+        elif cpu_count == 4:
+            ftp_max = 20
+            scp_bsd10_max = 20
+            scp_bsd6_max = 13
+        else:
+            ftp_max = 40
+            scp_bsd10_max = 20
+            scp_bsd6_max = 13
+            
+        if self.copy_proto == "ftp":
+            self.split_size = str(divmod(self.file_size, ftp_max)[0])
+            return
+
+        ver = self.start_shell.run("uname -i")
+        if self.start_shell.last_ok:
+            verstring = ver[1].split("\n")[1].rstrip()
+
+        if re.match(r"JNPR", verstring):
+            self.split_size = str(divmod(self.file_size, scp_bsd10_max)[0])
+        else:
+            self.split_size = str(divmod(self.file_size, scp_bsd6_max)[0])
 
     def split_file(self):
         """ splits file into chunks. The chunk size varies depending on the
@@ -476,27 +529,10 @@ class SPLITCOPY(object):
         Raises:
             None
         """
-        verstring = None
-        if self.copy_proto == "ftp":
-            split_size = str(divmod(self.file_size, 40)[0])
-        else:
-            # check if JUNOS running BSD10+
-            # scp to FreeBSD 6 based junos creates 3 processes per chunk
-            # scp to FreeBSD 10+ based junos creates 2 processes per chunk
-            # each uid can have max of 64 processes
-            # values here should leave ~24 processes headroom
-            ver = self.start_shell.run("uname -i")
-            if self.start_shell.last_ok:
-                verstring = ver[1].split("\n")[1].rstrip()
-
-            if re.match(r"JNPR", verstring):
-                split_size = str(divmod(self.file_size, 20)[0])
-            else:
-                split_size = str(divmod(self.file_size, 13)[0])
         print("splitting file...")
         try:
             subprocess.call(
-                ["split", "-b", split_size, self.file_path, self.file_name],
+                ["split", "-b", self.split_size, self.file_path, self.file_name],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=600,
@@ -507,12 +543,11 @@ class SPLITCOPY(object):
                 not_remote=True,
             )
         except subprocess.SubprocessError as err:
-            err_str=(
+            err_str = (
                 "an error occurred while splitting the file, "
                 "the error was:\n{}".format(err)
             )
             self.close(err_str, not_remote=True)
-
 
     def sha1_check(self):
         """ checks whether a sha1 already exists for the file
@@ -532,14 +567,13 @@ class SPLITCOPY(object):
             try:
                 sha1_str = subprocess.check_output(["shasum", self.file_path]).decode()
             except subprocess.SubprocessError as err:
-                err=(
+                err = (
                     "an error occurred generating a local sha1, "
                     "the error was:\n{}".format(err)
                 )
                 self.close(err_str=err, not_remote=True, not_local=True)
             finally:
                 self.orig_sha1 = sha1_str.split()[0]
-
 
     def storage_check(self):
         """ checks whether there is enough space on remote node to
@@ -603,7 +637,6 @@ class SPLITCOPY(object):
                 except:
                     raise
 
-
     @contextmanager
     def change_dir(self, cleanup=lambda: True):
         """ cds into temp directory.
@@ -623,7 +656,6 @@ class SPLITCOPY(object):
         finally:
             os.chdir(prevdir)
             cleanup()
-
 
     @contextmanager
     def tempdir(self):
@@ -646,7 +678,6 @@ class SPLITCOPY(object):
 
         with self.change_dir(cleanup):
             yield self.local_tmpdir
-
 
     def limit_check(self):
         """ Checks the remote hosts /etc/inetd file to determine whether there are any
@@ -739,7 +770,6 @@ class SPLITCOPY(object):
                     "configuration. Cannot proceed".format(self.copy_proto)
                 )
 
-
     def remote_cleanup(self, silent=False):
         """ delete tmp directory on remote host
         Args:
@@ -765,6 +795,7 @@ class SPLITCOPY(object):
 class StartShellFail(Exception):
     """ custom exception class
     """
+
     pass
 
 
@@ -778,7 +809,6 @@ class UploadProgress:
         self.block_size = 0
         self.file_size = file_size
         self.last_percent = 0
-
 
     def handle(self, arg=None):
         """ For every 10% of data transferred, notifies the user

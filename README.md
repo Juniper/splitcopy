@@ -1,28 +1,20 @@
-# splitcopy
+# Splitcopy
 
-Splits a given file into pieces in a tmp directory, copies these to a junos
-host then reassembles them. Tested to be 15x faster to transfer an 845MB
-file than regular ftp/scp.
+Splits a given file into chunks in a tmp directory,
+copies these chunks to a junos host and recombines them.  
+Requires 'system services ssh' configuration on remote host.  
+If using ftp to copy files (default) then 'system services ftp' is also required  
+Requires python 3.4 to run, 3.5 is faster, 3.6 is faster again  
 
-Requires 'system services ssh' configuration on remote host.
-If using ftp (default) to copy files then 'system services ftp' is also
-required.
+install required module dependencies via:
+```
+python3 -m pip install junos-eznc
+```
+Script overheads include authentication, sha1 generation/comparison, disk space check, file split and join.  
+It can be slower than normal ftp/scp for small files as a result.
 
-Requires python 3.4+ to run.
-    3x faster in 3.6 than 3.4
-
-install required module via:
-    pip3 install junos-eznc
-
-Script overhead is 5-10 seconds on 64bit RE's, longer on RE2000's
-and PPC based models like MX80.
-This includes authentication, sha1 generation/comparison,
-disk space check, file split and join.
-It will be slower than ftp/scp for small files as a result.
-
-Because it opens 13-40 (depending on BSD version/protocol) simultaneous
-connections, if the router has a connection and/or rate limit set similar to the example below, the tool will disable the appropriate lines in the device's configuration to
-allow the process to continue and will display an appropriate warning message advising the changes:
+Because it opens a number of simultaneous connections,
+if the router has connection/rate limits configured like this:
 
 ```
 system {
@@ -35,80 +27,133 @@ system {
 }
 ```
 
-In essence, the script initiates CLI commands to deactivate the rate-limit and/or connection-limit lines in the device's configuration to prevent any bandwidth or connectivity issues.
+The script will deactivate these limits so it can proceed
 
 # Arguments
 
 `filepath`          Mandatory, the path to the file you want to copy  
 `host`              Mandatory, the host to connect to, with sshd listening on port 22  
 `user`              Mandatory, the username to connect with  
-`-p or --password`  Optional, if you'd rather not have your password stored  
-                    in shell history, you can omit this and it'll prompt you instead  
+`-p or --password`  Optional, if you'd rather not have your password stored in shell history, you can omit this and it'll prompt you instead  
 `-d or --remotedir` Optional, remote directory to put file  
 `-s or --scp`       Optional, use scp instead of ftp to transfer files  
 
-# Example
+# Example FTP transfer (default method)
 
 ```
-$ ./splitcopy.py ~/Downloads/network-agent-x86-32-17.3R1.10-C1.tgz 192.168.1.1 lab --scp
+$ ./splitcopy.py jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz 192.168.1.1 lab
 Password:
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzap': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzaa': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzak': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzan': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzae': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzaq': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzam': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzaj': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzab': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzac': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzag': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzat': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzal': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzao': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzau': 18 / 18 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzah': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzaf': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzad': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzar': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzas': 67092 / 67092 (100%)
-192.168.1.1: b'network-agent-x86-32-17.3R1.10-C1.tgzai': 67092 / 67092 (100%)
-performing file joins...
+checking remote port(s) are open...
+using FTP for file transfer
+checking remote storage...
+sha1 not found, generating sha1...
+splitting file...
+starting transfer...
+10% done
+20% done
+30% done
+40% done
+50% done
+60% done
+70% done
+80% done
+90% done
+100% done
+transfer complete
+joining files...
 deleting remote tmp directory...
-generating sha1 and verifying...
-file has been successfully copied to 192.168.1.1:/var/tmp/network-agent-x86-32-17.3R1.10-C1.tgz, sha1 matches
-data transfer time = 0:00:08.462824
-total runtime = 0:00:18.350813
+generating remote sha1...
+local and remote sha1 match
+file has been successfully copied to 192.168.1.1:/var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz
+data transfer = 0:00:16.831192
+total runtime = 0:00:31.520914
 ```
 
-# NOTES
+# Example SCP transfer  
 
-In FreeBSD 10 based releases each scp chunk creates 2 pids on a junos box.  
-In FreeBSD 6 based releases each scp chunk would create 3 pids on a junos box:
+```
+$ ./splitcopy.py jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz 192.168.1.1 lab --scp
+Password:
+checking remote port(s) are open...
+using SCP for file transfer
+checking remote storage...
+sha1 not found, generating sha1...
+splitting file...
+starting transfer...
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzaf': 212992 / 1988212 (10%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzau': 17 / 17 (100%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzam': 212992 / 1988212 (10%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzah': 212992 / 1988212 (10%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzaq': 212992 / 1988212 (10%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzai': 212992 / 1988212 (10%)
+...
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzac': 1988212 / 1988212 (100%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzat': 1605632 / 1988212 (80%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzap': 1988212 / 1988212 (100%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzab': 1988212 / 1988212 (100%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzag': 1802240 / 1988212 (90%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzal': 1392640 / 1988212 (70%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzaj': 1988212 / 1988212 (100%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzat': 1802240 / 1988212 (90%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzag': 1988212 / 1988212 (100%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzal': 1605632 / 1988212 (80%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzat': 1988212 / 1988212 (100%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzal': 1802240 / 1988212 (90%)
+10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzal': 1988212 / 1988212 (100%)
+transfer complete
+joining files...
+deleting remote tmp directory...
+generating remote sha1...
+local and remote sha1 match
+file has been successfully copied to 192.168.1.1:/var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz
+data transfer = 0:00:29.509159
+total runtime = 0:00:43.886565
+```
 
-lab 78625  0.0  0.1  2984  2144  ??  Ss    5:29AM   0:00.01 cli -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
-lab 78626  0.0  0.0  2252  1556  ??  S     5:29AM   0:00.00 sh -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
-lab 78627  0.0  0.1  3500  1908  ??  S     5:29AM   0:00.01 scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
+# Notes on using FTP
 
-This could result in maxproc limit being hit with 21 ssh sessions:
+FTP is the default transfer method.  
 
+The version of Python used has a big impact.  
+If using < 3.6 the maximum number of simultaneous transfers is 5.  
+If using 3.6+ it will allow 5 simultaneous transfers per cpu   
+
+Using FTP method will generate the following processes on the remote host:
+- for mgmt session: 1x sshd, 1x cli, 1x mgd, 1x csh
+- for transfers: up to 40x ftpd processes (depends on Python version and number of cpus as described above)
+
+In theory, this could result in the per-user maxproc limit of 64 being exceeded:
+```
 May  2 04:46:59   /kernel: maxproc limit exceeded by uid 2001, please see tuning(7) and login.conf(5).
-
 ```
-% limit
-cputime      unlimited
-filesize     unlimited
-datasize     65536 kbytes
-stacksize    8192 kbytes
-coredumpsize unlimited
-memoryuse    30720 kbytes
-vmemoryuse   unlimited
-descriptors  64
-memorylocked 10240 kbytes
-maxproc      64
-sbsize       unlimited
+The script modulates the number of chunks to match the maximum number of simultaneous transfers possible (based on Python version and number of cpus).   
+The maximum number of user owned processes that could be created is <= 44
+
+# Notes on using SCP
+
+The version of Python used has a big impact.  
+If using < 3.6 the maximum number of simultaneous transfers is 5.  
+If using 3.6+ it will allow 5 simultaneous transfers per cpu 
+
+Using SCP method will generate the following processes on the remote host:
+- for mgmt session: 1x sshd, 1x cli, 1x mgd, 1x csh
+- for transfers:  depends on Python version, number of cpus (see above) and Junos FreeBSD version (see below)
+
+In FreeBSD 10 based Junos each scp transfer creates 2 user owned processes and 1 root owned process: 
 ```
-
-As a result the script modulates the number of sessions depending on the BSD version
-
-FTP only creates one pid per chunk, hence it is now the default transfer method
+root 28626   0.0  0.0   63248   5724  -  Ss   11:59AM     0:00.11 sshd: labroot@notty (sshd)
+lab  28639   0.0  0.0  734108   4004  -  Is   12:00PM     0:00.01 cli -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/
+lab  28640   0.0  0.0   24768   3516  -  S    12:00PM     0:00.01 scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/
+```
+In FreeBSD 6 based Junos each scp transfer creates 3 user owned processes:
+```
+lab  78625  0.0  0.1  2984  2144  ??  Ss    5:29AM   0:00.01 cli -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
+lab  78626  0.0  0.0  2252  1556  ??  S     5:29AM   0:00.00 sh -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
+lab  78627  0.0  0.1  3500  1908  ??  S     5:29AM   0:00.01 scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
+```
+In theory, this could result in the per-user maxproc limit of 64 being exceeded:
+```
+May  2 04:46:59   /kernel: maxproc limit exceeded by uid 2001, please see tuning(7) and login.conf(5).
+```
+The script modulates the number of chunks to match the maximum number of simultaneous transfers possible (based on Python version, number of cpus and Junos FreeBSD version).  
+The maximum number of user owned processes that could be created is <= 44
