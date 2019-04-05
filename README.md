@@ -27,7 +27,7 @@ system {
 }
 ```
 
-The script will deactivate these limits so it can proceed
+The script will deactivate these limits so it can proceed, then activate them again.  
 
 # Arguments
 

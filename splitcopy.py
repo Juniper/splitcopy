@@ -5,36 +5,6 @@
     ./LICENCE file. By downloading, installing, copying, or otherwise
     using the SOFTWARE, you agree to be bound by the terms of that
     LICENSE.
-
-    Splits a given file into chunks in a tmp directory,
-    copies these chunks to a junos host and recombines them.
-
-    Requires 'system services ssh' configuration on remote host.
-    If using ftp to copy files (default) then 'system services ftp' is also
-    required.
-
-    Requires python 3.4 to run, 3.5 is faster, 3.6 is faster again
-
-    install required module via:
-        pip3 install junos-eznc
-
-    Script overhead includes authentication, sha1 generation/comparison,
-    disk space check, file split and join.
-    It will be slower than normal ftp/scp for small files as a result.
-
-    Because it opens a number of simultaneous connections,
-    if the router has connection/rate limits configured like this:
-
-    system {
-        services {
-            ssh { # or ftp
-                connection-limit 10;
-                rate-limit 10;
-            }
-        }
-    }
-
-    The script will deactivate these limits so it can proceed
 """
 
 import sys
