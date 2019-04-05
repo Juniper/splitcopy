@@ -223,6 +223,10 @@ class SPLITCOPY(object):
         self.file_path = file_path
         self.file_size = file_size
         self.copy_proto = copy_proto
+        self.rm_remote_tmp = True
+        self.rm_local_tmp = True
+        self.config_rollback = True
+        self.hard_close = False
 
     def connect(self):
         """ initiates the connection to the remote host
@@ -262,10 +266,7 @@ class SPLITCOPY(object):
                     # begin pre transfer checks, check if remote directory exists
                     self.start_shell.run("test -d {}".format(self.remote_dir))
                     if not self.start_shell.last_ok:
-                        self.close(
-                            err_str="remote directory specified does not exist",
-                            not_remote=True,
-                        )
+                        self.close(err_str="remote directory specified does not exist")
 
                     # end of pre transfer checks, create tmp directory
                     self.start_shell.run(
@@ -273,8 +274,7 @@ class SPLITCOPY(object):
                     )
                     if not self.start_shell.last_ok:
                         self.close(
-                            err_str="unable to create the tmp directory on remote host",
-                            not_remote=True,
+                            err_str="unable to create the tmp directory on remote host"
                         )
 
                     # begin connection/rate limit check and transfer process
@@ -302,19 +302,18 @@ class SPLITCOPY(object):
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
                     except scp.SCPException as err:
+                        self.hard_close = True
                         self.close(
-                            err_str="an scp error occurred, the error was {}".format(
-                                err
-                            ),
-                            hard=True,
+                            err_str="an scp error occurred, error was {}".format(err)
                         )
                     except KeyboardInterrupt:
-                        self.close(hard=True)
+                        self.hard_close = True
+                        self.close()
                     except:
+                        self.hard_close = True
                         self.close(
                             err_str="an error occurred while copying the files to the "
-                            "remote host, please retry",
-                            hard=True,
+                            "remote host, please retry"
                         )
                     finally:
                         loop.close()
@@ -330,6 +329,10 @@ class SPLITCOPY(object):
 
                 # remove remote tmp dir
                 self.remote_cleanup()
+
+                # rollback any config changes made
+                if self.command_list:
+                    self.limits_rollback()
 
                 # generate a sha1 for the combined file, compare to sha1 of src
                 self.remote_sha1()
@@ -369,20 +372,18 @@ class SPLITCOPY(object):
             Raises:
                 None
         """
+        self.hard_close = True
         err = "signal received, transfer has failed - please retry"
-        self.close(err_str=err, hard=True)
+        self.close(err_str=err)
 
-    def close(self, err_str=None, hard=False, not_remote=False, not_local=False):
+    def close(self, err_str=None):
         """ Called when we want to exit the script
             attempts to delete the remote temp directory and close the TCP session
-            If hard == False, contextmanager will delete the local temp directory
+            If self.hard_close == False, contextmanager will rm the local temp dir
             If not, we must delete it manually
             Args:
                 self - class variables inherited from __init__
                 err_str(str) - error description
-                hard(bool) - determines whether we exit gracefully or not
-                not_remote(bool) - skip remote tmp directory deletion or not
-                not_local(boot) - skip local tmp directory deletion or not
             Returns:
                 None
             Raises either:
@@ -391,13 +392,15 @@ class SPLITCOPY(object):
         """
         if err_str:
             print(err_str)
-        if not not_remote:
+        if self.rm_remote_tmp:
             self.remote_cleanup()
+        if self.config_rollback and self.command_list:
+            self.limits_rollback()
         print("closing device connection")
         self.dev.close()
-        if hard and not_local:
+        if self.hard_close and not self.rm_local_tmp:
             raise os._exit(1)
-        elif hard:
+        elif self.hard_close:
             shutil.rmtree(self.local_tmpdir)
             raise os._exit(1)
         else:
@@ -438,7 +441,9 @@ class SPLITCOPY(object):
             err = "file {}:{}/{} not found! please retry".format(
                 self.host, self.remote_dir, self.file_name
             )
-            self.close(err_str=err, not_remote=True)
+            self.rm_remote_tmp = False
+            self.config_rollback = False
+            self.close(err_str=err)
         sha1_tuple = self.start_shell.run(
             "sha1 {}/{}".format(self.remote_dir, self.file_name), timeout=300
         )
@@ -463,7 +468,9 @@ class SPLITCOPY(object):
                 "local and remote sha1 do not match - "
                 "please retry".format(self.host, self.remote_dir, self.file_name)
             )
-            self.close(err_str=err, not_remote=True)
+            self.rm_remote_tmp = False
+            self.config_rollback = False
+            self.close(err_str=err)
 
     def split_size(self):
         """ The chunk size depends on the python version, cpu count, 
@@ -534,16 +541,15 @@ class SPLITCOPY(object):
                 timeout=600,
             )
         except subprocess.TimeoutExpired:
-            self.close(
-                err_str="local file splitting operation timed out after 10 mins",
-                not_remote=True,
-            )
+            self.rm_remote_tmp = False
+            self.close(err_str="local file splitting operation timed out after 10 mins")
         except subprocess.SubprocessError as err:
+            self.rm_remote_tmp = False
             err_str = (
                 "an error occurred while splitting the file, "
                 "the error was:\n{}".format(err)
             )
-            self.close(err_str, not_remote=True)
+            self.close(err_str)
 
     def sha1_check(self):
         """ checks whether a sha1 already exists for the file
@@ -567,7 +573,9 @@ class SPLITCOPY(object):
                     "an error occurred generating a local sha1, "
                     "the error was:\n{}".format(err)
                 )
-                self.close(err_str=err, not_remote=True, not_local=True)
+                self.rm_local_tmp = False
+                self.rm_remote_tmp = False
+                self.close(err_str=err)
             finally:
                 self.orig_sha1 = sha1_str.split()[0]
 
@@ -584,23 +592,21 @@ class SPLITCOPY(object):
         print("checking remote storage...")
         df_tuple = self.start_shell.run("df {}".format(self.remote_dir))
         if not self.start_shell.last_ok:
-            self.close(
-                err_str="failed to determine remote disk space available",
-                not_remote=True,
-                not_local=True,
-            )
+            self.rm_local_tmp = False
+            self.rm_remote_tmp = False
+            self.close(err_str="failed to determine remote disk space available")
         avail_blocks = df_tuple[1].split("\n")[2].split()[3].rstrip()
         avail_bytes = int(avail_blocks) * 512
         if self.file_size * 2 > avail_bytes:
+            self.rm_local_tmp = False
+            self.rm_remote_tmp = False
             self.close(
                 err_str=(
                     "not enough space on remote host. Available space "
                     "must be 2x the original file size because it has to "
                     "store the file chunks and the whole file at the "
                     "same time"
-                ),
-                not_remote=True,
-                not_local=True,
+                )
             )
 
     def put_files(self, sfile, **kwargs):
@@ -701,7 +707,7 @@ class SPLITCOPY(object):
         else:
             port_conf.append(re.search(r"ssh stream tcp/.*", inetd[1]).group(0))
 
-        command_list = []
+        self.command_list = []
         for port in port_conf:
             config = re.split("[/ ]", port)
             p_name = config[0]
@@ -709,9 +715,9 @@ class SPLITCOPY(object):
             rate_lim = int(config[6])
 
             # check for presence of rate/connection limits
-            if con_lim < 25:
+            if con_lim < 50:
                 print(
-                    "{} configured connection-limit is under 25".format(p_name.upper())
+                    "{} configured connection-limit is under 50".format(p_name.upper())
                 )
                 d_config = self.start_shell.run(
                     'cli -c "show configuration | display set '
@@ -724,14 +730,14 @@ class SPLITCOPY(object):
                     d_config = d_config[1].split("\r\n")[1]
                     d_config = re.sub(" [0-9]+$", "", d_config)
                     d_config = re.sub("set", "deactivate", d_config)
-                    command_list.append("{};".format(d_config))
+                    self.command_list.append("{};".format(d_config))
                 else:
                     raise StartShellFail(
                         "Error: failed to determine configured limits, cannot proceed"
                     )
 
-            if rate_lim < 100:
-                print("{} configured rate limit is under 100".format(p_name.upper()))
+            if rate_lim < 50:
+                print("{} configured rate limit is under 50".format(p_name.upper()))
                 d_config = self.start_shell.run(
                     'cli -c "show configuration | display set '
                     '| grep {} | grep rate-limit"'.format(p_name)
@@ -743,21 +749,21 @@ class SPLITCOPY(object):
                     d_config = d_config[1].split("\r\n")[1]
                     d_config = re.sub(" [0-9]+$", "", d_config)
                     d_config = re.sub("set", "deactivate", d_config)
-                    command_list.append("{};".format(d_config))
+                    self.command_list.append("{};".format(d_config))
                 else:
                     raise StartShellFail(
                         "Error: failed to determine configured limits, cannot proceed"
                     )
 
         # if limits were configured, deactivate them
-        if command_list:
+        if self.command_list:
             self.start_shell.run(
-                'cli -c "edit;{}commit and-quit"'.format("".join(command_list))
+                'cli -c "edit;{}commit and-quit"'.format("".join(self.command_list))
             )
 
             if self.start_shell.last_ok:
                 print(
-                    "NOTICE: the configuration has been modified. "
+                    "the configuration has been modified. "
                     "deactivated the limit(s) found"
                 )
             else:
@@ -765,6 +771,26 @@ class SPLITCOPY(object):
                     "Error: failed to deactivate {} connection-limit/rate-limit"
                     "configuration. Cannot proceed".format(self.copy_proto)
                 )
+
+    def limits_rollback(self):
+        """ revert config change made to remote host
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            None
+        Raises:
+            None
+        """
+        rollback_cmds = "".join(self.command_list)
+        rollback_cmds = re.sub("deactivate", "activate", rollback_cmds)
+        self.start_shell.run('cli -c "edit;{}commit and-quit"'.format(rollback_cmds))
+        if self.start_shell.last_ok:
+            print("the configuration changes made have been reverted.")
+        else:
+            raise StartShellFail(
+                "Error: failed to deactivate {} connection-limit/rate-limit"
+                "configuration. Cannot proceed".format(self.copy_proto)
+            )
 
     def remote_cleanup(self, silent=False):
         """ delete tmp directory on remote host
