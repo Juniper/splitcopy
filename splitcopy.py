@@ -193,6 +193,7 @@ class SPLITCOPY(object):
         self.file_path = file_path
         self.file_size = file_size
         self.copy_proto = copy_proto
+        self.command_list = []
         self.rm_remote_tmp = True
         self.rm_local_tmp = True
         self.config_rollback = True
@@ -677,7 +678,6 @@ class SPLITCOPY(object):
         else:
             port_conf.append(re.search(r"ssh stream tcp/.*", inetd[1]).group(0))
 
-        self.command_list = []
         for port in port_conf:
             config = re.split("[/ ]", port)
             p_name = config[0]
