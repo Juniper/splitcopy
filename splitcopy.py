@@ -52,7 +52,7 @@ def main():
         "-p", "--password", nargs=1, help="password to authenticate on remote host"
     )
     parser.add_argument(
-        "-d", "--remotedir", nargs=1, help="remote host directory to put file"
+        "-d", "--destdir", nargs=1, help="directory to put file"
     )
     parser.add_argument(
         "-s",
@@ -60,6 +60,13 @@ def main():
         action="store_const",
         const="scp",
         help="use scp to copy files instead of ftp",
+    )
+    parser.add_argument(
+        "-r",
+        "--reverse",
+        action="store_const",
+        const="reverse",
+        help="copy from remote host",
     )
     args = parser.parse_args()
 
@@ -71,8 +78,9 @@ def main():
 
     host = args.host
     user = args.user
+    reverse = args.reverse
 
-    if not os.path.isfile(args.filepath):
+    if not reverse and not os.path.isfile(args.filepath):
         raise SystemExit(
             "source file {} does not exist - cannot proceed".format(args.filepath)
         )
@@ -82,10 +90,10 @@ def main():
     else:
         password = args.password[0]
 
-    if args.remotedir:
-        remote_dir = args.remotedir[0]
+    if args.destdir:
+        dest_dir = args.destdir[0]
     else:
-        remote_dir = "/var/tmp"
+        dest_dir = "/var/tmp"
 
     if re.search("/", args.filepath):
         file_name = args.filepath.rsplit("/", 1)[1]
@@ -93,7 +101,10 @@ def main():
         file_name = args.filepath
 
     file_path = os.path.abspath(args.filepath)
-    file_size = os.path.getsize(file_path)
+    if not reverse:
+        file_size = os.path.getsize(file_path)
+    else:
+        file_size = 0
     start_time = datetime.datetime.now()
 
     print("checking remote port(s) are open...")
@@ -128,11 +139,14 @@ def main():
             pass
 
     splitcopy = SPLITCOPY(
-        host, user, password, remote_dir, file_name, file_path, file_size, copy_proto
+        host, user, password, dest_dir, file_name, file_path, file_size, copy_proto, reverse
     )
 
     # connect to host
-    loop_start, loop_end = splitcopy.connect()
+    if reverse:
+        loop_start, loop_end = splitcopy.get()    
+    else:
+        loop_start, loop_end = splitcopy.push()
 
     # and we are done...
     end_time = datetime.datetime.now()
@@ -177,18 +191,19 @@ class SPLITCOPY(object):
         host,
         user,
         password,
-        remote_dir,
+        dest_dir,
         file_name,
         file_path,
         file_size,
         copy_proto,
+        reverse,
     ):
         """ Initialise the SPLITCOPY class
         """
         self.host = host
         self.user = user
         self.password = password
-        self.remote_dir = remote_dir
+        self.dest_dir = dest_dir
         self.file_name = file_name
         self.file_path = file_path
         self.file_size = file_size
@@ -198,7 +213,7 @@ class SPLITCOPY(object):
         self.config_rollback = True
         self.hard_close = False
 
-    def connect(self):
+    def push(self):
         """ initiates the connection to the remote host
             Args:
                 self - class variables inherited from __init__
@@ -234,13 +249,13 @@ class SPLITCOPY(object):
                             sfiles.append(sfile)
 
                     # begin pre transfer checks, check if remote directory exists
-                    self.start_shell.run("test -d {}".format(self.remote_dir))
+                    self.start_shell.run("test -d {}".format(self.dest_dir))
                     if not self.start_shell.last_ok:
                         self.close(err_str="remote directory specified does not exist")
 
                     # end of pre transfer checks, create tmp directory
                     self.start_shell.run(
-                        "mkdir {}/splitcopy_{}".format(self.remote_dir, self.file_name)
+                        "mkdir {}/splitcopy_{}".format(self.dest_dir, self.file_name)
                     )
                     if not self.start_shell.last_ok:
                         self.close(
@@ -331,6 +346,146 @@ class SPLITCOPY(object):
         self.dev.close()
         return loop_start, loop_end
 
+    def get(self):
+        """ initiates the connection to the remote host
+            Args:
+                self - class variables inherited from __init__
+            Returns:
+                loop_start(obj) - datetime
+                loop_end(obj) - datetime
+            Raises:
+                SystemExit upon connection errors
+        """
+
+        # check if local directory exists
+        if not os.path.isdir(self.dest_dir):
+            #change flags 
+            self.close(err_str="local directory specified does not exist")
+
+        self.local_storage_check()
+
+        try:
+            self.dev = Device(host=self.host, user=self.user, passwd=self.password)
+            with StartShell(self.dev) as self.start_shell:
+                # cleanup previous remote tmp directory if found
+                #self.remote_cleanup(True)
+
+                # confirm remote storage is sufficient
+                #self.storage_check()
+
+                # get/create sha1 for local file
+                #self.sha1_check()
+
+                # determine optimal size for chunks
+                #self.split_size()
+
+                # create tmp directory on remote host
+                self.remote_tmpdir = "/var/tmp/splitcopy_{}".format(self.file_name)
+                self.start_shell.run("mkdir -p {}".format(self.remote_tmpdir))
+                if not self.start_shell.last_ok:
+                    self.close(
+                        # add flags
+                        err_str="unable to create the tmp directory on remote host"
+                    )
+
+                # split file into chunks
+                self.split_file_remote()
+
+                # add chunk names to a list
+                remote_files = self.start_shell.run("ls /var/tmp/splitcopy_{}/".format(self.file_name))
+                if not self.start_shell.last_ok:
+                    self.close(err_str="couldn't get list of files from host")
+                remote_files = remote_files[1].split("\r\n")
+                sfiles = []
+                for sfile in remote_files:
+                    if fnmatch.fnmatch(sfile, "{}*".format(self.file_name)):
+                        sfiles.append(sfile)
+
+                # begin connection/rate limit check and transfer process
+                try:
+                    self.limit_check()
+                except StartShellFail as err:
+                    self.close(err_str=err)
+
+                if self.copy_proto == "ftp":
+                    kwargs = {"callback": UploadProgress(self.file_size).handle}
+                else:
+                    kwargs = {"progress": True, "socket_timeout": 30.0}
+
+                # copy files from remote host
+                loop_start = datetime.datetime.now()
+                loop = asyncio.get_event_loop()
+                self.tasks = []
+                for sfile in sfiles:
+                    task = loop.run_in_executor(
+                        None, functools.partial(self.get_files, sfile, **kwargs)
+                    )
+                    self.tasks.append(task)
+                loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
+                print("starting transfer...")
+                try:
+                    loop.run_until_complete(asyncio.gather(*self.tasks))
+                except scp.SCPException as err:
+                    self.hard_close = True
+                    self.close(
+                        err_str="an scp error occurred, error was {}".format(err)
+                    )
+                except KeyboardInterrupt:
+                    self.hard_close = True
+                    self.close()
+                except:
+                    self.hard_close = True
+                    self.close(
+                        err_str="an error occurred while copying the files to the "
+                        "remote host, please retry"
+                    )
+                finally:
+                    loop.close()
+
+                print("transfer complete")
+                loop_end = datetime.datetime.now()
+
+                # combine chunks
+#                try:
+#                    self.join_files()
+#                except StartShellFail as err:
+#                    self.close(err_str=err)
+
+                # remove remote tmp dir
+                self.remote_cleanup()
+
+                # rollback any config changes made
+                if self.command_list:
+                    self.limits_rollback()
+
+                # generate a sha1 for the combined file, compare to sha1 of src
+#                self.remote_sha1()
+
+        except TimeoutError:
+            raise SystemExit("ssh connection attempt timed out")
+        except BadAuthenticationType:
+            raise SystemExit("authentication type used isn't allowed by the host")
+        except AuthenticationException:
+            raise SystemExit("ssh authentication failed")
+        except BadHostKeyException:
+            raise SystemExit(
+                "host key verification failed. delete the host key in "
+                "~/.ssh/known_hosts and retry"
+            )
+        except ChannelException as err:
+            raise SystemExit(
+                "an attempt to open a new ssh channel failed. "
+                " error code returned was:\n{}".format(err)
+            )
+        except SSHException as err:
+            raise SystemExit("an ssh error occurred, the error was {}".format(err))
+        except KeyboardInterrupt:
+            raise SystemExit(1)
+
+        self.dev.close()
+        return loop_start, loop_end
+
+
     def signal_bail(self):
         """ if a signal is recevied while copying files to host we must quit
             as file cannot be recombined.
@@ -388,7 +543,7 @@ class SPLITCOPY(object):
         print("joining files...")
         self.start_shell.run(
             "cat {}/splitcopy_{}/* > {}/{}".format(
-                self.remote_dir, self.file_name, self.remote_dir, self.file_name
+                self.dest_dir, self.file_name, self.dest_dir, self.file_name
             ),
             timeout=600,
         )
@@ -406,16 +561,16 @@ class SPLITCOPY(object):
             None
         """
         print("generating remote sha1...")
-        self.start_shell.run("ls {}/{}".format(self.remote_dir, self.file_name))
+        self.start_shell.run("ls {}/{}".format(self.dest_dir, self.file_name))
         if not self.start_shell.last_ok:
             err = "file {}:{}/{} not found! please retry".format(
-                self.host, self.remote_dir, self.file_name
+                self.host, self.dest_dir, self.file_name
             )
             self.rm_remote_tmp = False
             self.config_rollback = False
             self.close(err_str=err)
         sha1_tuple = self.start_shell.run(
-            "sha1 {}/{}".format(self.remote_dir, self.file_name), timeout=300
+            "sha1 {}/{}".format(self.dest_dir, self.file_name), timeout=300
         )
         if not self.start_shell.last_ok:
             print(
@@ -429,14 +584,14 @@ class SPLITCOPY(object):
             print(
                 "local and remote sha1 match\nfile has been "
                 "successfully copied to {}:{}/{}".format(
-                    self.host, self.remote_dir, self.file_name
+                    self.host, self.dest_dir, self.file_name
                 )
             )
         else:
             err = (
                 "file has been copied to {}:{}/{}, but the "
                 "local and remote sha1 do not match - "
-                "please retry".format(self.host, self.remote_dir, self.file_name)
+                "please retry".format(self.host, self.dest_dir, self.file_name)
             )
             self.rm_remote_tmp = False
             self.config_rollback = False
@@ -521,6 +676,24 @@ class SPLITCOPY(object):
             )
             self.close(err_str)
 
+    def split_file_remote(self):
+        blocks = 80918
+        total_blocks = 3236704
+        cmd = (
+            "size_b={}; size_tb={}; i=0; o=00; while [ $i -lt $size_tb ]; do "
+            "dd if={} of={}/{}_$o bs=1024 count=$size_b skip=$i; i=`expr $i + $size_b`; "
+            "o=`expr $o + 1`; if [ $o -lt 10 ]; then o=0$o; fi; done".format(
+                blocks, total_blocks, self.file_path, self.remote_tmpdir, self.file_name,
+            )
+        )
+        self.start_shell.run(
+            "printf '{}' > {}/split.sh && sh {}/split.sh".format(
+                cmd, self.remote_tmpdir, self.remote_tmpdir
+            )
+        )
+        if not self.start_shell.last_ok:
+            SystemExit("couldn't split the remote file")            
+
     def sha1_check(self):
         """ checks whether a sha1 already exists for the file
             if not creates one
@@ -538,7 +711,7 @@ class SPLITCOPY(object):
             print("sha1 not found, generating sha1...")
             try:
                 sha1_str = subprocess.check_output(["shasum", self.file_path]).decode()
-            except subprocess.SubprocessError as err:
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError) as err:
                 err = (
                     "an error occurred generating a local sha1, "
                     "the error was:\n{}".format(err)
@@ -560,19 +733,49 @@ class SPLITCOPY(object):
             None
         """
         print("checking remote storage...")
-        df_tuple = self.start_shell.run("df {}".format(self.remote_dir))
+        df_tuple = self.start_shell.run("df -k {}".format(self.dest_dir))
         if not self.start_shell.last_ok:
             self.rm_local_tmp = False
             self.rm_remote_tmp = False
             self.close(err_str="failed to determine remote disk space available")
         avail_blocks = df_tuple[1].split("\n")[2].split()[3].rstrip()
-        avail_bytes = int(avail_blocks) * 512
+        avail_bytes = int(avail_blocks) * 1024
         if self.file_size * 2 > avail_bytes:
             self.rm_local_tmp = False
             self.rm_remote_tmp = False
             self.close(
                 err_str=(
                     "not enough space on remote host. Available space "
+                    "must be 2x the original file size because it has to "
+                    "store the file chunks and the whole file at the "
+                    "same time"
+                )
+            )
+
+    def local_storage_check(self):
+        """ checks whether there is enough space on local host to
+            store both the original file and the chunks
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            None
+        Raises:
+            None
+        """
+        print("checking local storage...")
+        try:
+            df_output = subprocess.check_output(["df", "-k", self.dest_dir]).decode()
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            raise
+
+        avail_blocks = df_output.split("\n")[2].split()[3].rstrip()
+        avail_bytes = int(avail_blocks) * 1024
+        if self.file_size * 2 > avail_bytes:
+            self.rm_local_tmp = False
+            self.rm_remote_tmp = False
+            self.close(
+                err_str=(
+                    "not enough space on local host. Available space "
                     "must be 2x the original file size because it has to "
                     "store the file chunks and the whole file at the "
                     "same time"
@@ -595,7 +798,7 @@ class SPLITCOPY(object):
                 try:
                     ftp_proto.put(
                         sfile,
-                        "{}/splitcopy_{}/".format(self.remote_dir, self.file_name),
+                        "{}/splitcopy_{}/".format(self.dest_dir, self.file_name),
                     )
                 except:
                     raise
@@ -604,10 +807,41 @@ class SPLITCOPY(object):
                 try:
                     scp_proto.put(
                         sfile,
-                        "{}/splitcopy_{}/".format(self.remote_dir, self.file_name),
+                        "{}/splitcopy_{}/".format(self.dest_dir, self.file_name),
                     )
                 except:
                     raise
+
+    def get_files(self, sfile, **kwargs):
+        """ copies files to remote host via ftp or scp
+        Args:
+            self - class variables inherited from __init__
+            sfile(str) - name of the file to copy
+            kwargs (dict) - named arguments
+        Returns:
+            None
+        Raises:
+            re-raises any exception
+        """
+        if self.copy_proto == "ftp":
+            with FTP(self.dev, **kwargs) as ftp_proto:
+                try:
+                    ftp_proto.get(
+                        "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
+                        local_path="{}/{}".format(self.dest_dir, sfile),
+                    )
+                except:
+                    raise
+        else:
+            with SCP(self.dev, **kwargs) as scp_proto:
+                try:
+                    scp_proto.get(
+                        "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
+                        local_path="{}/{}".format(self.dest_dir, sfile),
+                    )
+                except:
+                    raise
+
 
     @contextmanager
     def change_dir(self, cleanup=lambda: True):
@@ -775,12 +1009,12 @@ class SPLITCOPY(object):
         if not silent:
             print("deleting remote tmp directory...")
         self.start_shell.run(
-            "rm -rf {}/splitcopy_{}".format(self.remote_dir, self.file_name), timeout=10
+            "rm -rf {}/splitcopy_{}".format(self.dest_dir, self.file_name), timeout=10
         )
         if not self.start_shell.last_ok:
             print(
                 "unable to delete the tmp directory {}/splitcopy_{} on remote host, "
-                "delete it manually".format(self.remote_dir, self.file_name)
+                "delete it manually".format(self.dest_dir, self.file_name)
             )
 
 
