@@ -1,7 +1,9 @@
 # Splitcopy
 
+Speeds up copying files to/from JUNOS hosts.
+
 Splits a given file into chunks in a tmp directory,
-copies these chunks to a junos host and recombines them.  
+copies these chunks and recombines them.  
 Requires 'system services ssh' configuration on remote host.  
 If using ftp to copy files (default) then 'system services ftp' is also required  
 Requires python 3.4 to run, 3.5 is faster, 3.6 is faster again  
@@ -35,8 +37,9 @@ The script will deactivate these limits so it can proceed, then activate them ag
 `host`              Mandatory, the host to connect to, with sshd listening on port 22  
 `user`              Mandatory, the username to connect with  
 `-p or --password`  Optional, if you'd rather not have your password stored in shell history, you can omit this and it'll prompt you instead  
-`-d or --remotedir` Optional, remote directory to put file  
+`-d or --destdir`   Optional, directory to put file  
 `-s or --scp`       Optional, use scp instead of ftp to transfer files  
+`-g or --get`       Optional, copy from remote to local host  
 
 # Example FTP transfer (default method)
 
@@ -113,6 +116,7 @@ total runtime = 0:00:43.886565
 # Notes on using FTP
 
 FTP is the default transfer method.  
+FTP progress is not supported on --get operation  
 
 The version of Python used has a big impact.  
 If using < 3.6 the maximum number of simultaneous transfers is 5.  
