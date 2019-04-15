@@ -215,7 +215,6 @@ class SPLITCOPY(object):
         self.copy_proto = copy_proto
         self.command_list = []
         self.rm_remote_tmp = True
-        self.rm_local_tmp = True
         self.config_rollback = True
         self.hard_close = False
         self.get_op = get
@@ -264,10 +263,7 @@ class SPLITCOPY(object):
                     self.remote_tmpdir()
 
                     # begin connection/rate limit check and transfer process
-                    try:
-                        self.limit_check()
-                    except StartShellFail as err:
-                        self.close(err_str=err)
+                    self.limit_check()
 
                     if self.copy_proto == "ftp":
                         kwargs = {"callback": FtpProgress(self.file_size).handle}
@@ -276,7 +272,6 @@ class SPLITCOPY(object):
 
                     # copy files to remote host
                     self.hard_close = True
-                    self.rm_local_tmp = True
                     loop_start = datetime.datetime.now()
                     loop = asyncio.get_event_loop()
                     self.tasks = []
@@ -290,7 +285,6 @@ class SPLITCOPY(object):
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
                     except scp.SCPException as err:
-                        self.hard_close = True
                         self.close(
                             err_str="an scp error occurred, error was {}".format(err)
                         )
@@ -304,7 +298,6 @@ class SPLITCOPY(object):
                     finally:
                         loop.close()
                         self.hard_close = False
-                        self.rm_local_tmp = False
 
                 print("transfer complete")
                 loop_end = datetime.datetime.now()
@@ -400,7 +393,6 @@ class SPLITCOPY(object):
                     "ls -1 /var/tmp/splitcopy_{}/".format(self.file_name)
                 )
                 if not self.start_shell.last_ok:
-                    self.rm_local_tmp = False
                     self.close(err_str="couldn't get list of files from host")
                 remote_files = remote_files[1].split("\r\n")
                 sfiles = []
@@ -409,11 +401,7 @@ class SPLITCOPY(object):
                         sfiles.append(sfile)
 
                 # begin connection/rate limit check and transfer process
-                try:
-                    self.limit_check()
-                except StartShellFail as err:
-                    self.rm_local_tmp = False
-                    self.close(err_str=err)
+                self.limit_check()
 
                 if self.copy_proto == "ftp":
                     kwargs = {"callback": FtpProgress(self.file_size).handle}
@@ -421,9 +409,8 @@ class SPLITCOPY(object):
                     kwargs = {"progress": True, "socket_timeout": 30.0}
 
                 with self.tempdir():
-                    self.hard_close = True
-                    self.rm_local_tmp = True
                     # copy files from remote host
+                    self.hard_close = True
                     loop_start = datetime.datetime.now()
                     loop = asyncio.get_event_loop()
                     self.tasks = []
@@ -450,7 +437,6 @@ class SPLITCOPY(object):
                     finally:
                         loop.close()
                         self.hard_close = False
-                        self.rm_local_tmp = False
 
                     print("transfer complete")
                     loop_end = datetime.datetime.now()
@@ -529,9 +515,7 @@ class SPLITCOPY(object):
             self.limits_rollback()
         print("closing device connection")
         self.dev.close()
-        if self.hard_close and not self.rm_local_tmp:
-            raise os._exit(1)
-        elif self.hard_close:
+        if self.hard_close:
             shutil.rmtree(self.local_tmpdir)
             raise os._exit(1)
         else:
@@ -544,7 +528,7 @@ class SPLITCOPY(object):
         Returns:
             None
         Raises:
-            StartShellFail - remote shell cmd failed or timed out
+            None
         """
         print("joining files...")
         self.start_shell.run(
@@ -747,7 +731,6 @@ class SPLITCOPY(object):
         )
         if not self.start_shell.last_ok:
             err_str = "couldn't split the remote file"
-            self.rm_local_tmp = False
             self.close(err_str)
 
     def sha1_check_local(self):
@@ -773,7 +756,6 @@ class SPLITCOPY(object):
                 "an error occurred generating a local sha1, "
                 "the error was:\n{}".format(err)
             )
-            self.rm_local_tmp = False
             self.close(err_str=err)
         finally:
             local_sha1 = sha1_str.split()[0]
@@ -788,7 +770,6 @@ class SPLITCOPY(object):
                 "local and remote sha1 do not match - "
                 "please retry".format(self.file_name)
             )
-            self.rm_local_tmp = False
             self.rm_remote_tmp = False
             self.config_rollback = False
             self.close(err_str=err)
@@ -819,7 +800,6 @@ class SPLITCOPY(object):
                     "an error occurred generating a local sha1, "
                     "the error was:\n{}".format(err)
                 )
-                self.rm_local_tmp = False
                 self.rm_remote_tmp = False
                 self.close(err_str=err)
             finally:
@@ -859,7 +839,6 @@ class SPLITCOPY(object):
         if self.start_shell.last_ok:
             self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[3].rstrip()
         else:
-            self.rm_local_tmp = False
             self.rm_remote_tmp = False
             self.close(err_str="failed to generate remote sha1")
 
@@ -877,7 +856,6 @@ class SPLITCOPY(object):
             self.file_size = int(file_size[1].split("\n")[1].split()[4])
         else:
             self.rm_remote_tmp = False
-            self.rm_local_tmp = False
             self.close(err_str="cannot determine remote file size")
 
     def storage_check(self, get=False):
@@ -1027,15 +1005,16 @@ class SPLITCOPY(object):
         Returns:
             None
         Raises:
-            StartShellFail - if any of the start_shell commands fail or time out
+            None
         """
 
         inetd = self.start_shell.run("cat /etc/inetd.conf", timeout=300)
         if not self.start_shell.last_ok:
-            raise StartShellFail(
+            err = (
                 "Error: failed to read /etc/inetd.conf, "
                 "can't determine whether ssh or ftp connection limits are configured"
             )
+            self.close(err_str=err)
 
         port_conf = []
         if self.copy_proto == "ftp":
@@ -1068,9 +1047,8 @@ class SPLITCOPY(object):
                     d_config = re.sub("set", "deactivate", d_config)
                     self.command_list.append("{};".format(d_config))
                 else:
-                    raise StartShellFail(
-                        "Error: failed to determine configured limits, cannot proceed"
-                    )
+                    err = "Error: failed to determine configured limits, cannot proceed"
+                    self.close(err_str=err)
 
             if rate_lim < 50:
                 print("{} configured rate limit is under 50".format(p_name.upper()))
@@ -1087,26 +1065,25 @@ class SPLITCOPY(object):
                     d_config = re.sub("set", "deactivate", d_config)
                     self.command_list.append("{};".format(d_config))
                 else:
-                    raise StartShellFail(
-                        "Error: failed to determine configured limits, cannot proceed"
-                    )
+                    err = "Error: failed to determine configured limits, cannot proceed"
+                    self.close(err_str=err)
 
         # if limits were configured, deactivate them
         if self.command_list:
             self.start_shell.run(
                 'cli -c "edit;{}commit and-quit"'.format("".join(self.command_list))
             )
-
             if self.start_shell.last_ok:
                 print(
                     "the configuration has been modified. "
                     "deactivated the limit(s) found"
                 )
             else:
-                raise StartShellFail(
+                err = (
                     "Error: failed to deactivate {} connection-limit/rate-limit"
                     "configuration. Cannot proceed".format(self.copy_proto)
                 )
+                self.close(err_str=err)
 
     def limits_rollback(self):
         """ revert config change made to remote host
@@ -1123,9 +1100,9 @@ class SPLITCOPY(object):
         if self.start_shell.last_ok:
             print("the configuration changes made have been reverted.")
         else:
-            raise StartShellFail(
-                "Error: failed to deactivate {} connection-limit/rate-limit"
-                "configuration. Cannot proceed".format(self.copy_proto)
+            print(
+                "Error: failed to revert the connection-limit/rate-limit"
+                "configuration changes made"
             )
 
     def remote_cleanup(self, silent=False):
@@ -1148,13 +1125,6 @@ class SPLITCOPY(object):
                 "unable to delete the tmp directory {}/splitcopy_{} on remote host, "
                 "delete it manually".format(self.dest_dir, self.file_name)
             )
-
-
-class StartShellFail(Exception):
-    """ custom exception class
-    """
-
-    pass
 
 
 class FtpProgress:
