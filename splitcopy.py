@@ -1128,7 +1128,9 @@ class SPLITCOPY(object):
 
 
 class FtpProgress:
-    """ class which ftp module calls back to after each block has been sent
+    """ class which jnpr.junos.utils.ftp calls back to after
+        a) for put operations, each block has been sent
+        b) for get operations, each chunk of data has been received
     """
 
     def __init__(self, file_size):
@@ -1137,18 +1139,25 @@ class FtpProgress:
         self.block_size = 0
         self.file_size = file_size
         self.last_percent = 0
+        self.data_sum = 0
 
-    def handle(self, arg=None):
+    def handle(self, data=None):
         """ For every 10% of data transferred, notifies the user
         Args:
-            arg -  used to keep python3.4 from complaining about number of args
+            data - chunk of data being exchanged
         Returns:
-            None, just prints progress
+            None
         Raises:
             None
         """
-        self.block_size += 8192
-        percent_done = round((self.block_size / self.file_size) * 100)
+        if data:
+            size_data = sys.getsizeof(data)
+            self.data_sum += size_data
+            print(self.data_sum, self.file_size)
+            percent_done = round((100 / self.file_size) * self.data_sum)
+        else:
+            self.block_size += 8192
+            percent_done = round((100 / self.file_size) * self.block_size)
         if self.last_percent != percent_done:
             self.last_percent = percent_done
             if percent_done % 10 == 0:
