@@ -1153,7 +1153,6 @@ class FtpProgress:
         if data:
             size_data = sys.getsizeof(data)
             self.data_sum += size_data
-            print(self.data_sum, self.file_size)
             percent_done = round((100 / self.file_size) * self.data_sum)
         else:
             self.block_size += 8192
