@@ -138,7 +138,6 @@ def main():
         ):
             copy_proto = "scp"
             print("using SCP for file transfer")
-            pass
 
     splitcopy = SPLITCOPY(
         host, user, password, dest_dir, file_name, file_path, file_size, copy_proto, get
@@ -148,7 +147,7 @@ def main():
     if get:
         loop_start, loop_end = splitcopy.get()
     else:
-        loop_start, loop_end = splitcopy.push()
+        loop_start, loop_end = splitcopy.put()
 
     # and we are done...
     end_time = datetime.datetime.now()
@@ -218,8 +217,13 @@ class SPLITCOPY(object):
         self.config_rollback = True
         self.hard_close = False
         self.get_op = get
+        self.dev = None
+        self.start_shell = None
+        self.local_sha1 = None
+        self.local_tmpdir = None
+        self.tasks = None
 
-    def push(self):
+    def put(self):
         """ initiates the connection to the remote host
             Args:
                 self - class variables inherited from __init__
@@ -268,7 +272,10 @@ class SPLITCOPY(object):
                     if self.copy_proto == "ftp":
                         kwargs = {"callback": FtpProgress(self.file_size).handle}
                     else:
-                        kwargs = {"progress": True, "socket_timeout": 30.0}
+                        kwargs = {
+                            "progress": ScpProgress(self.file_size, self.get_op).handle,
+                            "socket_timeout": 30.0,
+                        }
 
                     # copy files to remote host
                     self.hard_close = True
@@ -406,8 +413,10 @@ class SPLITCOPY(object):
                 if self.copy_proto == "ftp":
                     kwargs = {"callback": FtpProgress(self.file_size).handle}
                 else:
-                    kwargs = {"progress": True, "socket_timeout": 30.0}
-
+                    kwargs = {
+                        "progress": ScpProgress(self.file_size, self.get_op).handle,
+                        "socket_timeout": 30.0,
+                    }
                 with self.tempdir():
                     # copy files from remote host
                     self.hard_close = True
@@ -429,7 +438,7 @@ class SPLITCOPY(object):
                         )
                     except KeyboardInterrupt:
                         self.close()
-                    except:
+                        except:
                         self.close(
                             err_str="an error occurred while copying the files to the "
                             "remote host, please retry"
@@ -630,7 +639,7 @@ class SPLITCOPY(object):
             self.close(err_str=err)
 
     def split_size(self):
-        """ The chunk size depends on the python version, cpu count, 
+        """ The chunk size depends on the python version, cpu count,
             the protocol used to copy and the FreeBSD version
         Args:
             self - class variables inherited from __init__
@@ -709,6 +718,14 @@ class SPLITCOPY(object):
             self.close(err_str)
 
     def split_file_remote(self):
+        """ splits file on remote host
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            None
+        Raises:
+            None
+        """
         total_blocks = int(self.file_size / 1024)
         block_size = int(self.split_size / 1024)
         cmd = (
@@ -1128,13 +1145,12 @@ class SPLITCOPY(object):
 
 
 class FtpProgress:
-    """ class which jnpr.junos.utils.ftp calls back to after receiving data
+    """ class which jnpr.junos.utils.ftp calls back to
     """
 
     def __init__(self, file_size):
         """ Initialise the class
         """
-        self.block_size = 0
         self.file_size = file_size
         self.last_percent = 0
         self.data_sum = 0
@@ -1152,6 +1168,43 @@ class FtpProgress:
         size_data = sys.getsizeof(data) - self.header_bytes
         self.data_sum += size_data
         percent_done = int((100 / self.file_size) * self.data_sum)
+        if self.last_percent != percent_done:
+            self.last_percent = percent_done
+            if percent_done % 10 == 0:
+                print("{}% done".format(str(percent_done)))
+
+
+class ScpProgress:
+    """ class which jnpr.junos.utils.scp calls back to
+    """
+
+    def __init__(self, file_size, get_op):
+        """ Initialise the class
+        """
+        self.file_size = file_size
+        self.get_op = get_op
+        self.last_percent = 0
+        self.sent_sum = 0
+        self.last_sent = 0
+        self.files_progress = {}
+
+    def handle(self, file_name, size, sent):
+        """ For every 10% of data transferred, notifies the user
+        Args:
+            file_name(str) - name of file
+            size(int) - size of of file in bytes
+            sent(int) - bytes transferred
+        Returns:
+            None
+        Raises:
+            None
+        """
+        if not self.get_op:
+            file_name = file_name.decode()
+        self.files_progress["{}".format(file_name)] = sent
+        sent_values = list(self.files_progress.values())
+        self.sent_sum = sum(sent_values)
+        percent_done = int((100 / self.file_size) * self.sent_sum)
         if self.last_percent != percent_done:
             self.last_percent = percent_done
             if percent_done % 10 == 0:
