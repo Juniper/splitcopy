@@ -438,7 +438,7 @@ class SPLITCOPY(object):
                         )
                     except KeyboardInterrupt:
                         self.close()
-                        except:
+                    except:
                         self.close(
                             err_str="an error occurred while copying the files to the "
                             "remote host, please retry"
