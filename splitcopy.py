@@ -7,26 +7,26 @@
     LICENSE.
 """
 
-import sys
-
-if sys.version_info < (3, 4):
+try:
+    import asyncio
+except ImportError:
     raise RuntimeError("This script requires Python 3.4+")
-import asyncio
 import argparse
-import os
 import datetime
 import fnmatch
 import functools
 import getpass
 import multiprocessing
+import os
 import re
 import shutil
-import tempfile
 import signal
 import subprocess
+import sys
+import tempfile
 import warnings
-import scp
 from contextlib import contextmanager
+import scp
 from paramiko.ssh_exception import SSHException
 from paramiko.ssh_exception import ChannelException
 from paramiko.ssh_exception import BadHostKeyException
@@ -1128,9 +1128,7 @@ class SPLITCOPY(object):
 
 
 class FtpProgress:
-    """ class which jnpr.junos.utils.ftp calls back to after
-        a) for put operations, each block has been sent
-        b) for get operations, each chunk of data has been received
+    """ class which jnpr.junos.utils.ftp calls back to after receiving data
     """
 
     def __init__(self, file_size):
@@ -1140,23 +1138,20 @@ class FtpProgress:
         self.file_size = file_size
         self.last_percent = 0
         self.data_sum = 0
+        self.header_bytes = 33
 
-    def handle(self, data=None):
+    def handle(self, data):
         """ For every 10% of data transferred, notifies the user
         Args:
-            data - chunk of data being exchanged
+            data(obj) - data being exchanged
         Returns:
             None
         Raises:
             None
         """
-        if data:
-            size_data = sys.getsizeof(data)
-            self.data_sum += size_data
-            percent_done = round((100 / self.file_size) * self.data_sum)
-        else:
-            self.block_size += 8192
-            percent_done = round((100 / self.file_size) * self.block_size)
+        size_data = sys.getsizeof(data) - self.header_bytes
+        self.data_sum += size_data
+        percent_done = int((100 / self.file_size) * self.data_sum)
         if self.last_percent != percent_done:
             self.last_percent = percent_done
             if percent_done % 10 == 0:
