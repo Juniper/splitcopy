@@ -927,24 +927,31 @@ class SPLITCOPY:
         Returns:
             None
         Raises:
-            re-raises any exception
+            None
         """
+        retry = 3
         if self.copy_proto == "ftp":
             with FTP(self.dev, **kwargs) as ftp_proto:
-                try:
-                    ftp_proto.put(
+                while retry:
+                    if ftp_proto.put(
                         sfile, "{}/splitcopy_{}/".format(self.dest_dir, self.file_name)
-                    )
-                except:
-                    raise
+                    ):
+                        retry = 0
+                    else:
+                        print("retrying file {}".format(sfile))
+                        retry -= 1
         else:
             with SCP(self.dev, **kwargs) as scp_proto:
-                try:
-                    scp_proto.put(
-                        sfile, "{}/splitcopy_{}/".format(self.dest_dir, self.file_name)
-                    )
-                except:
-                    raise
+                while retry:
+                    try:
+                        scp_proto.put(
+                            sfile,
+                            "{}/splitcopy_{}/".format(self.dest_dir, self.file_name),
+                        )
+                        retry = 0
+                    except:
+                        print("retrying file {}".format(sfile))
+                        retry -= 1
 
     def get_files(self, sfile, **kwargs):
         """ copies files from remote host via ftp or scp
@@ -955,26 +962,32 @@ class SPLITCOPY:
         Returns:
             None
         Raises:
-            re-raises any exception
+            None
         """
+        retry = 3
         if self.copy_proto == "ftp":
             with FTP(self.dev, **kwargs) as ftp_proto:
-                try:
-                    ftp_proto.get(
+                while retry:
+                    if ftp_proto.get(
                         "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
                         local_path="{}/{}".format(self.local_tmpdir, sfile),
-                    )
-                except:
-                    raise
+                    ):
+                        retry = 0
+                    else:
+                        print("retrying file {}".format(sfile))
+                        retry -= 1
         else:
             with SCP(self.dev, **kwargs) as scp_proto:
-                try:
-                    scp_proto.get(
-                        "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
-                        local_path="{}/{}".format(self.local_tmpdir, sfile),
-                    )
-                except:
-                    raise
+                while retry:
+                    try:
+                        scp_proto.get(
+                            "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
+                            local_path="{}/{}".format(self.local_tmpdir, sfile),
+                        )
+                        retry = 0
+                    except:
+                        print("retrying file {}".format(sfile))
+                        retry -= 1
 
     @contextmanager
     def change_dir(self, cleanup=lambda: True):
