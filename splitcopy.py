@@ -291,7 +291,7 @@ class SPLITCOPY:
                             None, functools.partial(self.put_files, sfile, **kwargs)
                         )
                         self.tasks.append(task)
-                    loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
+                    #loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
                     print("starting transfer...")
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
@@ -433,7 +433,7 @@ class SPLITCOPY:
                             None, functools.partial(self.get_files, sfile, **kwargs)
                         )
                         self.tasks.append(task)
-                    loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
+                    #loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
                     print("starting transfer...")
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
@@ -931,8 +931,8 @@ class SPLITCOPY:
         """
         retry = 3
         if self.copy_proto == "ftp":
-            with FTP(self.dev, **kwargs) as ftp_proto:
-                while retry:
+            while retry:
+                with FTP(self.dev, **kwargs) as ftp_proto:
                     if ftp_proto.put(
                         sfile, "{}/splitcopy_{}/".format(self.dest_dir, self.file_name)
                     ):
@@ -941,8 +941,8 @@ class SPLITCOPY:
                         print("retrying file {}".format(sfile))
                         retry -= 1
         else:
-            with SCP(self.dev, **kwargs) as scp_proto:
-                while retry:
+            while retry:
+                with SCP(self.dev, **kwargs) as scp_proto:
                     try:
                         scp_proto.put(
                             sfile,
@@ -966,8 +966,8 @@ class SPLITCOPY:
         """
         retry = 3
         if self.copy_proto == "ftp":
-            with FTP(self.dev, **kwargs) as ftp_proto:
-                while retry:
+            while retry:
+                with FTP(self.dev, **kwargs) as ftp_proto:
                     if ftp_proto.get(
                         "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
                         local_path="{}/{}".format(self.local_tmpdir, sfile),
@@ -977,8 +977,8 @@ class SPLITCOPY:
                         print("retrying file {}".format(sfile))
                         retry -= 1
         else:
-            with SCP(self.dev, **kwargs) as scp_proto:
-                while retry:
+            while retry:
+                with SCP(self.dev, **kwargs) as scp_proto:
                     try:
                         scp_proto.get(
                             "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
