@@ -186,7 +186,7 @@ def port_check(host, port):
         raise
 
 
-class SPLITCOPY(object):
+class SPLITCOPY:
     """ class docstring
     """
 
@@ -222,9 +222,13 @@ class SPLITCOPY(object):
         self.local_sha1 = None
         self.local_tmpdir = None
         self.tasks = None
+        self.split_size = None
+        self.remote_tmpdir = None
+        self.remote_sha1 = None
 
     def put(self):
         """ initiates the connection to the remote host
+            uploads a file
             Args:
                 self - class variables inherited from __init__
             Returns:
@@ -246,7 +250,7 @@ class SPLITCOPY(object):
                 self.sha1_check()
 
                 # determine optimal size for chunks
-                self.split_size()
+                self.file_split_size()
 
                 with self.tempdir():
                     # split file into chunks
@@ -264,7 +268,7 @@ class SPLITCOPY(object):
                         self.close(err_str="remote directory specified does not exist")
 
                     # end of pre transfer checks, create tmp directory
-                    self.remote_tmpdir()
+                    self.mkdir_remote()
 
                     # begin connection/rate limit check and transfer process
                     self.limit_check()
@@ -273,7 +277,7 @@ class SPLITCOPY(object):
                         kwargs = {"callback": FtpProgress(self.file_size).handle}
                     else:
                         kwargs = {
-                            "progress": ScpProgress(self.file_size, self.get_op).handle,
+                            "progress": ScpProgress(self.file_size).handle,
                             "socket_timeout": 30.0,
                         }
 
@@ -320,7 +324,7 @@ class SPLITCOPY(object):
                     self.limits_rollback()
 
                 # generate a sha1 for the combined file, compare to sha1 of src
-                self.remote_sha1()
+                self.remote_sha1_put()
 
         except TimeoutError:
             raise SystemExit("ssh connection attempt timed out")
@@ -348,6 +352,7 @@ class SPLITCOPY(object):
 
     def get(self):
         """ initiates the connection to the remote host
+            downloads a file
             Args:
                 self - class variables inherited from __init__
             Returns:
@@ -387,10 +392,10 @@ class SPLITCOPY(object):
                 self.remote_sha1_get()
 
                 # determine optimal size for chunks
-                self.split_size()
+                self.file_split_size()
 
                 # create tmp directory on remote host
-                self.remote_tmpdir()
+                self.mkdir_remote()
 
                 # split file into chunks
                 self.split_file_remote()
@@ -414,7 +419,7 @@ class SPLITCOPY(object):
                     kwargs = {"callback": FtpProgress(self.file_size).handle}
                 else:
                     kwargs = {
-                        "progress": ScpProgress(self.file_size, self.get_op).handle,
+                        "progress": ScpProgress(self.file_size).handle,
                         "socket_timeout": 30.0,
                     }
                 with self.tempdir():
@@ -440,8 +445,8 @@ class SPLITCOPY(object):
                         self.close()
                     except:
                         self.close(
-                            err_str="an error occurred while copying the files to the "
-                            "remote host, please retry"
+                            err_str="an error occurred while copying the files from "
+                            "the remote host, please retry"
                         )
                     finally:
                         loop.close()
@@ -591,7 +596,7 @@ class SPLITCOPY(object):
             )
             self.close(err_str)
 
-    def remote_sha1(self):
+    def remote_sha1_put(self):
         """ creates a sha1 hash for the newly combined file on the remote host
             compares against local sha1
         Args:
@@ -638,7 +643,7 @@ class SPLITCOPY(object):
             self.config_rollback = False
             self.close(err_str=err)
 
-    def split_size(self):
+    def file_split_size(self):
         """ The chunk size depends on the python version, cpu count,
             the protocol used to copy and the FreeBSD version
         Args:
@@ -822,7 +827,7 @@ class SPLITCOPY(object):
             finally:
                 self.local_sha1 = sha1_str.split()[0]
 
-    def remote_tmpdir(self):
+    def mkdir_remote(self):
         """ creates a tmp directory on the remote host
         Args:
             self - class variables inherited from __init__
@@ -1137,7 +1142,7 @@ class SPLITCOPY(object):
         self.start_shell.run(
             "rm -rf {}/splitcopy_{}".format(self.dest_dir, self.file_name), timeout=10
         )
-        if not self.start_shell.last_ok:
+        if not self.start_shell.last_ok and not silent:
             print(
                 "unable to delete the tmp directory {}/splitcopy_{} on remote host, "
                 "delete it manually".format(self.dest_dir, self.file_name)
@@ -1178,11 +1183,10 @@ class ScpProgress:
     """ class which jnpr.junos.utils.scp calls back to
     """
 
-    def __init__(self, file_size, get_op):
+    def __init__(self, file_size):
         """ Initialise the class
         """
         self.file_size = file_size
-        self.get_op = get_op
         self.last_percent = 0
         self.sent_sum = 0
         self.last_sent = 0
@@ -1199,8 +1203,10 @@ class ScpProgress:
         Raises:
             None
         """
-        if not self.get_op:
+        try:
             file_name = file_name.decode()
+        except AttributeError:
+            pass
         self.files_progress["{}".format(file_name)] = sent
         sent_values = list(self.files_progress.values())
         self.sent_sum = sum(sent_values)
