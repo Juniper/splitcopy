@@ -747,7 +747,7 @@ class SPLITCOPY:
             )
         )
         self.start_shell.run(
-            "printf '{}' > {}/split.sh && sh {}/split.sh".format(
+            "echo '{}' > {}/split.sh && sh {}/split.sh".format(
                 cmd, self.remote_tmpdir, self.remote_tmpdir
             )
         )
