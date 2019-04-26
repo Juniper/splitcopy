@@ -83,26 +83,16 @@ checking remote storage...
 sha1 not found, generating sha1...
 splitting file...
 starting transfer...
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzaf': 212992 / 1988212 (10%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzau': 17 / 17 (100%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzam': 212992 / 1988212 (10%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzah': 212992 / 1988212 (10%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzaq': 212992 / 1988212 (10%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzai': 212992 / 1988212 (10%)
-...
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzac': 1988212 / 1988212 (100%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzat': 1605632 / 1988212 (80%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzap': 1988212 / 1988212 (100%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzab': 1988212 / 1988212 (100%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzag': 1802240 / 1988212 (90%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzal': 1392640 / 1988212 (70%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzaj': 1988212 / 1988212 (100%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzat': 1802240 / 1988212 (90%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzag': 1988212 / 1988212 (100%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzal': 1605632 / 1988212 (80%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzat': 1988212 / 1988212 (100%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzal': 1802240 / 1988212 (90%)
-10.219.35.18: b'jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgzal': 1988212 / 1988212 (100%)
+10% done
+20% done
+30% done
+40% done
+50% done
+60% done
+70% done
+80% done
+90% done
+100% done
 transfer complete
 joining files...
 deleting remote tmp directory...
