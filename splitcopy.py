@@ -1061,46 +1061,46 @@ class SPLITCOPY:
             port_conf.append(re.search(r"ssh stream tcp/.*", inetd[1]).group(0))
 
         for port in port_conf:
-            config = re.split("[/ ]", port)
-            p_name = config[0]
-            con_lim = int(config[5])
-            rate_lim = int(config[6])
+            inetd_conf = re.split("[/ ]", port)
+            proto_name = inetd_conf[0]
+            conn_limit = int(inetd_conf[5])
+            rate_limit = int(inetd_conf[6])
 
             # check for presence of rate/connection limits
-            if con_lim < 50:
+            if conn_limit < 75:
                 print(
-                    "{} configured connection-limit is under 50".format(p_name.upper())
+                    "{} connection-limit configured, deactivating".format(proto_name.upper())
                 )
-                d_config = self.start_shell.run(
+                cli_config = self.start_shell.run(
                     'cli -c "show configuration | display set '
-                    '| grep {} | grep connection-limit"'.format(p_name)
+                    '| grep {} | grep connection-limit"'.format(proto_name)
                 )
                 if (
                     self.start_shell.last_ok
-                    and re.search(r"connection-limit", d_config[1]) is not None
+                    and re.search(r"connection-limit", cli_config[1]) is not None
                 ):
-                    d_config = d_config[1].split("\r\n")[1]
-                    d_config = re.sub(" [0-9]+$", "", d_config)
-                    d_config = re.sub("set", "deactivate", d_config)
-                    self.command_list.append("{};".format(d_config))
+                    cli_config = cli_config[1].split("\r\n")[1]
+                    cli_config = re.sub(" [0-9]+$", "", cli_config)
+                    cli_config = re.sub("set", "deactivate", cli_config)
+                    self.command_list.append("{};".format(cli_config))
                 else:
                     err = "Error: failed to determine configured limits, cannot proceed"
                     self.close(err_str=err)
 
-            if rate_lim < 50:
-                print("{} configured rate limit is under 50".format(p_name.upper()))
-                d_config = self.start_shell.run(
+            if rate_limit < 150:
+                print("{} rate-limit configured, deactivating".format(proto_name.upper()))
+                cli_config = self.start_shell.run(
                     'cli -c "show configuration | display set '
-                    '| grep {} | grep rate-limit"'.format(p_name)
+                    '| grep {} | grep rate-limit"'.format(proto_name)
                 )
                 if (
                     self.start_shell.last_ok
-                    and re.search(r"rate-limit", d_config[1]) is not None
+                    and re.search(r"rate-limit", cli_config[1]) is not None
                 ):
-                    d_config = d_config[1].split("\r\n")[1]
-                    d_config = re.sub(" [0-9]+$", "", d_config)
-                    d_config = re.sub("set", "deactivate", d_config)
-                    self.command_list.append("{};".format(d_config))
+                    cli_config = cli_config[1].split("\r\n")[1]
+                    cli_config = re.sub(" [0-9]+$", "", cli_config)
+                    cli_config = re.sub("set", "deactivate", cli_config)
+                    self.command_list.append("{};".format(cli_config))
                 else:
                     err = "Error: failed to determine configured limits, cannot proceed"
                     self.close(err_str=err)
