@@ -291,7 +291,7 @@ class SPLITCOPY:
                             None, functools.partial(self.put_files, sfile, **kwargs)
                         )
                         self.tasks.append(task)
-                    #loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
+                    # loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
                     print("starting transfer...")
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
@@ -429,7 +429,7 @@ class SPLITCOPY:
                             None, functools.partial(self.get_files, sfile, **kwargs)
                         )
                         self.tasks.append(task)
-                    #loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
+                    # loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
                     print("starting transfer...")
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
@@ -1069,7 +1069,9 @@ class SPLITCOPY:
             # check for presence of rate/connection limits
             if conn_limit < 75:
                 print(
-                    "{} connection-limit configured, deactivating".format(proto_name.upper())
+                    "{} connection-limit configured, deactivating".format(
+                        proto_name.upper()
+                    )
                 )
                 cli_config = self.start_shell.run(
                     'cli -c "show configuration | display set '
@@ -1088,7 +1090,9 @@ class SPLITCOPY:
                     self.close(err_str=err)
 
             if rate_limit < 150:
-                print("{} rate-limit configured, deactivating".format(proto_name.upper()))
+                print(
+                    "{} rate-limit configured, deactivating".format(proto_name.upper())
+                )
                 cli_config = self.start_shell.run(
                     'cli -c "show configuration | display set '
                     '| grep {} | grep rate-limit"'.format(proto_name)
