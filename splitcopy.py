@@ -295,10 +295,6 @@ class SPLITCOPY:
                     print("starting transfer...")
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
-                    except scp.SCPException as err:
-                        self.close(
-                            err_str="an scp error occurred, error was {}".format(err)
-                        )
                     except KeyboardInterrupt:
                         self.close()
                     except:
@@ -437,10 +433,6 @@ class SPLITCOPY:
                     print("starting transfer...")
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
-                    except scp.SCPException as err:
-                        self.close(
-                            err_str="an scp error occurred, error was {}".format(err)
-                        )
                     except KeyboardInterrupt:
                         self.close()
                     except:
@@ -521,14 +513,14 @@ class SPLITCOPY:
                 SystemExit - terminates the script gracefully
                 os._exit - terminates the script immediately (even asychio loop)
         """
-        if err_str:
-            print(err_str)
         if self.rm_remote_tmp:
             self.remote_cleanup()
         if self.config_rollback and self.command_list:
             self.limits_rollback()
         print("closing device connection")
         self.dev.close()
+        if err_str:
+            print(err_str)
         if self.hard_close:
             shutil.rmtree(self.local_tmpdir)
             raise os._exit(1)
@@ -930,6 +922,7 @@ class SPLITCOPY:
             None
         """
         retry = 3
+        success = False
         if self.copy_proto == "ftp":
             while retry:
                 with FTP(self.dev, **kwargs) as ftp_proto:
@@ -937,6 +930,7 @@ class SPLITCOPY:
                         sfile, "{}/splitcopy_{}/".format(self.dest_dir, self.file_name)
                     ):
                         retry = 0
+                        success = True
                     else:
                         print("retrying file {}".format(sfile))
                         retry -= 1
@@ -949,9 +943,12 @@ class SPLITCOPY:
                             "{}/splitcopy_{}/".format(self.dest_dir, self.file_name),
                         )
                         retry = 0
+                        success = True
                     except:
                         print("retrying file {}".format(sfile))
                         retry -= 1
+        if not success:
+            raise
 
     def get_files(self, sfile, **kwargs):
         """ copies files from remote host via ftp or scp
@@ -965,6 +962,7 @@ class SPLITCOPY:
             None
         """
         retry = 3
+        success = False
         if self.copy_proto == "ftp":
             while retry:
                 with FTP(self.dev, **kwargs) as ftp_proto:
@@ -973,6 +971,7 @@ class SPLITCOPY:
                         local_path="{}/{}".format(self.local_tmpdir, sfile),
                     ):
                         retry = 0
+                        success = True
                     else:
                         print("retrying file {}".format(sfile))
                         retry -= 1
@@ -985,9 +984,12 @@ class SPLITCOPY:
                             local_path="{}/{}".format(self.local_tmpdir, sfile),
                         )
                         retry = 0
+                        success = True
                     except:
                         print("retrying file {}".format(sfile))
                         retry -= 1
+        if not success:
+            raise
 
     @contextmanager
     def change_dir(self, cleanup=lambda: True):
