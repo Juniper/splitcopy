@@ -225,6 +225,7 @@ class SPLITCOPY:
         self.split_size = None
         self.remote_tmpdir = None
         self.remote_sha1 = None
+        self.host_os = None
 
     def put(self):
         """ initiates the connection to the remote host
@@ -240,6 +241,9 @@ class SPLITCOPY:
         try:
             self.dev = Device(host=self.host, user=self.user, passwd=self.password)
             with StartShell(self.dev) as self.start_shell:
+                # determine remote host os
+                self.which_os()
+
                 # cleanup previous remote tmp directory if found
                 self.remote_cleanup(True)
 
@@ -361,6 +365,8 @@ class SPLITCOPY:
         try:
             self.dev = Device(host=self.host, user=self.user, passwd=self.password)
             with StartShell(self.dev) as self.start_shell:
+                # determine remote host os
+                self.which_os()
 
                 # check if local directory exists
                 if not os.path.isdir(self.dest_dir):
@@ -483,6 +489,20 @@ class SPLITCOPY:
 
         self.dev.close()
         return loop_start, loop_end
+
+    def which_os(self):
+        """ determine if host is Linux or FreeBSD
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            None
+        Raises:
+            None
+        """
+        host_os = self.start_shell.run("uname", timeout=30)
+        if not self.start_shell.last_ok:
+            self.close(err_str="failed to determine remote host os")
+        self.host_os = host_os[1].split("\n")[1].rstrip()
 
     def signal_bail(self):
         """ if a signal is recevied while copying files to host we must quit
@@ -607,8 +627,12 @@ class SPLITCOPY:
             self.rm_remote_tmp = False
             self.config_rollback = False
             self.close(err_str=err)
+        if self.host_os == "Linux":
+            sha_bin = "sha1sum"
+        else:
+            sha_bin = "sha1"
         sha1_tuple = self.start_shell.run(
-            "sha1 {}/{}".format(self.dest_dir, self.file_name), timeout=300
+            "{} {}/{}".format(sha_bin, self.dest_dir, self.file_name), timeout=300
         )
         if not self.start_shell.last_ok:
             print(
@@ -617,7 +641,10 @@ class SPLITCOPY:
                 "compare against {}".format(self.local_sha1)
             )
             return
-        remote_sha1 = sha1_tuple[1].split("\n")[1].split()[3].rstrip()
+        if self.host_os == "Linux":
+            remote_sha1 = sha1_tuple[1].split("\n")[1].split()[0].rstrip()
+        else:
+            remote_sha1 = sha1_tuple[1].split("\n")[1].split()[3].rstrip()
         if self.local_sha1 == remote_sha1:
             print(
                 "local and remote sha1 match\nfile has been "
@@ -648,6 +675,10 @@ class SPLITCOPY:
         verstring = None
         if sys.version_info < (3, 6):
             # 3.4 and 3.5 will only do 5 simultaneous transfers
+            self.split_size = int(divmod(self.file_size, 5)[0])
+            return
+
+        if self.host_os == "Linux":
             self.split_size = int(divmod(self.file_size, 5)[0])
             return
 
@@ -759,7 +790,7 @@ class SPLITCOPY:
         print("generating local sha1...")
         try:
             sha1_str = subprocess.check_output(
-                ["shasum", self.dest_dir + "/" + self.file_name]
+                ["sha1sum", self.dest_dir + "/" + self.file_name]
             ).decode()
         except (
             subprocess.TimeoutExpired,
@@ -804,7 +835,7 @@ class SPLITCOPY:
         else:
             print("sha1 not found, generating sha1...")
             try:
-                sha1_str = subprocess.check_output(["shasum", self.file_path]).decode()
+                sha1_str = subprocess.check_output(["sha1sum", self.file_path]).decode()
             except (
                 subprocess.TimeoutExpired,
                 subprocess.SubprocessError,
@@ -847,8 +878,12 @@ class SPLITCOPY:
             None
         """
         print("generating remote sha1")
+        if self.host_os == "Linux":
+            sha_bin = 'sha1sum'
+        else:
+            sha_bin = 'sha1'
         remote_sha1 = self.start_shell.run(
-            "sha1 {}".format(self.file_path), timeout=300
+            "{} {}".format(sha_bin, self.file_path), timeout=300
         )
         if self.start_shell.last_ok:
             self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[3].rstrip()
@@ -1044,8 +1079,11 @@ class SPLITCOPY:
         Raises:
             None
         """
-
-        inetd = self.start_shell.run("cat /etc/inetd.conf", timeout=300)
+        self.start_shell.run("test -r /etc/inetd.conf")
+        if not self.start_shell.last_ok:
+            print("/etc/inetd.conf not readable, continuing")
+            return
+        inetd = self.start_shell.run("cat /etc/inetd.conf", timeout=30)
         if not self.start_shell.last_ok:
             err = (
                 "Error: failed to read /etc/inetd.conf, "
