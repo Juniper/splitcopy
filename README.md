@@ -1,6 +1,6 @@
 # Splitcopy
 
-Speeds up copying files to/from JUNOS hosts.
+Speeds up copying files to/from JUNOS/Evo/Linux/FreeBSD hosts.
 
 Splits a given file into chunks in a tmp directory,
 copies these chunks and recombines them.  
@@ -106,7 +106,7 @@ total runtime = 0:00:43.886565
 # Notes on using FTP
 
 FTP is the default transfer method.  
-FTP progress is not supported on --get operation  
+FTP progress on --get operations is supported from py-junos-eznc v2.2.2  
 
 The version of Python used has a big impact.  
 If using < 3.6 the maximum number of simultaneous transfers is 5.  

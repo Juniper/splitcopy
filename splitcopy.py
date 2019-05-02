@@ -20,13 +20,11 @@ import multiprocessing
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
 import warnings
 from contextlib import contextmanager
-import scp
 from paramiko.ssh_exception import SSHException
 from paramiko.ssh_exception import ChannelException
 from paramiko.ssh_exception import BadHostKeyException
@@ -226,6 +224,8 @@ class SPLITCOPY:
         self.remote_tmpdir = None
         self.remote_sha1 = None
         self.host_os = None
+        self.evo = False
+        self.junos = False
 
     def put(self):
         """ initiates the connection to the remote host
@@ -243,6 +243,13 @@ class SPLITCOPY:
             with StartShell(self.dev) as self.start_shell:
                 # determine remote host os
                 self.which_os()
+
+                # evo doesn't support ftp
+                if self.copy_proto == "ftp" and self.evo:
+                    print(
+                        "Switching to SCP to transfer files as EVO doesn't support ftp currently"
+                    )
+                    self.copy_proto = "scp"
 
                 # cleanup previous remote tmp directory if found
                 self.remote_cleanup(True)
@@ -275,7 +282,8 @@ class SPLITCOPY:
                     self.mkdir_remote()
 
                     # begin connection/rate limit check and transfer process
-                    self.limit_check()
+                    if self.junos or self.evo:
+                        self.limit_check()
 
                     if self.copy_proto == "ftp":
                         kwargs = {"callback": FtpProgress(self.file_size).handle}
@@ -295,16 +303,15 @@ class SPLITCOPY:
                             None, functools.partial(self.put_files, sfile, **kwargs)
                         )
                         self.tasks.append(task)
-                    # loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
                     print("starting transfer...")
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
                     except KeyboardInterrupt:
                         self.close()
-                    except:
+                    except Exception as err:
                         self.close(
                             err_str="an error occurred while copying the files to the "
-                            "remote host, please retry"
+                            "remote host, please retry. error was: {}".format(err)
                         )
                     finally:
                         loop.close()
@@ -368,6 +375,13 @@ class SPLITCOPY:
                 # determine remote host os
                 self.which_os()
 
+                # evo doesn't support ftp
+                if self.copy_proto == "ftp" and self.evo:
+                    print(
+                        "Switching to SCP to transfer files as EVO doesn't support ftp currently"
+                    )
+                    self.copy_proto = "scp"
+
                 # check if local directory exists
                 if not os.path.isdir(self.dest_dir):
                     self.rm_remote_tmp = False
@@ -415,7 +429,8 @@ class SPLITCOPY:
                         sfiles.append(sfile)
 
                 # begin connection/rate limit check and transfer process
-                self.limit_check()
+                if self.junos or self.evo:
+                    self.limit_check()
 
                 if self.copy_proto == "ftp":
                     kwargs = {"callback": FtpProgress(self.file_size).handle}
@@ -435,7 +450,6 @@ class SPLITCOPY:
                             None, functools.partial(self.get_files, sfile, **kwargs)
                         )
                         self.tasks.append(task)
-                    # loop.add_signal_handler(signal.SIGPIPE, self.signal_bail)
                     print("starting transfer...")
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
@@ -491,7 +505,7 @@ class SPLITCOPY:
         return loop_start, loop_end
 
     def which_os(self):
-        """ determine if host is Linux or FreeBSD
+        """ determine if host is Linux/FreeBSD
         Args:
             self - class variables inherited from __init__
         Returns:
@@ -503,21 +517,36 @@ class SPLITCOPY:
         if not self.start_shell.last_ok:
             self.close(err_str="failed to determine remote host os")
         self.host_os = host_os[1].split("\n")[1].rstrip()
+        if self.host_os == "Linux" and self.evo_os():
+            self.evo = True
+        elif self.junos_os():
+            self.junos = True
+        if not re.match(r'(Linux|FreeBSD)', self.host_os):
+            self.close(err_str="remote host isn't Linux or FreeBSD")
 
-    def signal_bail(self):
-        """ if a signal is recevied while copying files to host we must quit
-            as file cannot be recombined.
-            Would be better if we could retry the failed chunk... WIP
-            Args:
-                self - class variables inherited from __init__
-            Returns:
-                None
-            Raises:
-                None
+    def evo_os(self):
+        """ determines if host is EVO
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            bool
+        Raises:
+            None
         """
-        self.hard_close = True
-        err = "signal received, transfer has failed - please retry"
-        self.close(err_str=err)
+        self.start_shell.run("test -e /usr/sbin/evo-pfemand", timeout=30)
+        return self.start_shell.last_ok
+
+    def junos_os(self):
+        """ determines if host is JUNOS
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            bool
+        Raises:
+            None
+        """
+        self.start_shell.run("uname -i | egrep 'JUNIPER|JNPR'", timeout=30)
+        return self.start_shell.last_ok
 
     def close(self, err_str=None):
         """ Called when we want to exit the script
@@ -557,14 +586,18 @@ class SPLITCOPY:
             None
         """
         print("joining files...")
-        self.start_shell.run(
+        cmd_out = self.start_shell.run(
             "cat {}/splitcopy_{}/* > {}/{}".format(
                 self.dest_dir, self.file_name, self.dest_dir, self.file_name
             ),
             timeout=600,
         )
         if not self.start_shell.last_ok:
-            self.close(err_str="failed to combine chunks on remote host")
+            self.close(
+                err_str="failed to combine chunks on remote host. error was:\n{}".format(
+                    cmd_out[1]
+                )
+            )
 
     def join_files_local(self):
         """ concatenates the file chunks into one file
@@ -675,10 +708,6 @@ class SPLITCOPY:
         verstring = None
         if sys.version_info < (3, 6):
             # 3.4 and 3.5 will only do 5 simultaneous transfers
-            self.split_size = int(divmod(self.file_size, 5)[0])
-            return
-
-        if self.host_os == "Linux":
             self.split_size = int(divmod(self.file_size, 5)[0])
             return
 
@@ -863,10 +892,14 @@ class SPLITCOPY:
             self.remote_tmpdir = "/var/tmp/splitcopy_{}".format(self.file_name)
         else:
             self.remote_tmpdir = "{}/splitcopy_{}".format(self.dest_dir, self.file_name)
-        self.start_shell.run("mkdir -p {}".format(self.remote_tmpdir))
+        cmd_out = self.start_shell.run("mkdir -p {}".format(self.remote_tmpdir))
         if not self.start_shell.last_ok:
             self.rm_remote_tmp = False
-            self.close(err_str="unable to create the tmp directory on remote host")
+            err = (
+                "unable to create the tmp directory on remote host."
+                "cmd output was:\n{}".format(cmd_out[1])
+            )
+            self.close(err_str=err)
 
     def remote_sha1_get(self):
         """ generates a sha1 for the remote file to be copied
@@ -879,9 +912,9 @@ class SPLITCOPY:
         """
         print("generating remote sha1")
         if self.host_os == "Linux":
-            sha_bin = 'sha1sum'
+            sha_bin = "sha1sum"
         else:
-            sha_bin = 'sha1'
+            sha_bin = "sha1"
         remote_sha1 = self.start_shell.run(
             "{} {}".format(sha_bin, self.file_path), timeout=300
         )
@@ -960,30 +993,37 @@ class SPLITCOPY:
         success = False
         if self.copy_proto == "ftp":
             while retry:
-                with FTP(self.dev, **kwargs) as ftp_proto:
-                    if ftp_proto.put(
-                        sfile, "{}/splitcopy_{}/".format(self.dest_dir, self.file_name)
-                    ):
-                        retry = 0
-                        success = True
-                    else:
-                        print("retrying file {}".format(sfile))
-                        retry -= 1
+                try:
+                    with FTP(self.dev, **kwargs) as ftp_proto:
+                        if ftp_proto.put(
+                            sfile,
+                            "{}/splitcopy_{}/".format(self.dest_dir, self.file_name),
+                        ):
+                            retry = 0
+                            success = True
+                        else:
+                            print("retrying file {}".format(sfile))
+                            retry -= 1
+                except Exception as err:
+                    print("retrying file {} due to error {}".format(sfile, err))
+                    retry -= 1
+                    pass
         else:
             while retry:
-                with SCP(self.dev, **kwargs) as scp_proto:
-                    try:
+                try:
+                    with SCP(self.dev, **kwargs) as scp_proto:
                         scp_proto.put(
                             sfile,
                             "{}/splitcopy_{}/".format(self.dest_dir, self.file_name),
                         )
                         retry = 0
                         success = True
-                    except:
-                        print("retrying file {}".format(sfile))
-                        retry -= 1
+                except:
+                    print("retrying file {}".format(sfile))
+                    retry -= 1
+                    pass
         if not success:
-            raise
+            raise TransferError
 
     def get_files(self, sfile, **kwargs):
         """ copies files from remote host via ftp or scp
@@ -1000,31 +1040,37 @@ class SPLITCOPY:
         success = False
         if self.copy_proto == "ftp":
             while retry:
-                with FTP(self.dev, **kwargs) as ftp_proto:
-                    if ftp_proto.get(
-                        "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
-                        local_path="{}/{}".format(self.local_tmpdir, sfile),
-                    ):
-                        retry = 0
-                        success = True
-                    else:
-                        print("retrying file {}".format(sfile))
-                        retry -= 1
+                try:
+                    with FTP(self.dev, **kwargs) as ftp_proto:
+                        if ftp_proto.get(
+                            "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
+                            local_path="{}/{}".format(self.local_tmpdir, sfile),
+                        ):
+                            retry = 0
+                            success = True
+                        else:
+                            print("retrying file {}".format(sfile))
+                            retry -= 1
+                except Exception as err:
+                    print("retrying file {} due to error {}".format(sfile, err))
+                    retry -= 1
+                    pass
         else:
             while retry:
-                with SCP(self.dev, **kwargs) as scp_proto:
-                    try:
+                try:
+                    with SCP(self.dev, **kwargs) as scp_proto:
                         scp_proto.get(
                             "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
                             local_path="{}/{}".format(self.local_tmpdir, sfile),
                         )
                         retry = 0
                         success = True
-                    except:
-                        print("retrying file {}".format(sfile))
-                        retry -= 1
+                except Exception as err:
+                    print("retrying file {} due to error {}".format(sfile, err))
+                    retry -= 1
+                    pass
         if not success:
-            raise
+            raise TransferError
 
     @contextmanager
     def change_dir(self, cleanup=lambda: True):
@@ -1079,76 +1125,41 @@ class SPLITCOPY:
         Raises:
             None
         """
-        self.start_shell.run("test -r /etc/inetd.conf")
-        if not self.start_shell.last_ok:
-            print("/etc/inetd.conf not readable, continuing")
-            return
-        inetd = self.start_shell.run("cat /etc/inetd.conf", timeout=30)
-        if not self.start_shell.last_ok:
-            err = (
-                "Error: failed to read /etc/inetd.conf, "
-                "can't determine whether ssh or ftp connection limits are configured"
-            )
-            self.close(err_str=err)
-
-        port_conf = []
+        config_stanzas = ["groups", "system services"]
         if self.copy_proto == "ftp":
-            port_conf.append(re.search(r"ftp stream tcp/.*", inetd[1]).group(0))
-            port_conf.append(re.search(r"ssh stream tcp/.*", inetd[1]).group(0))
+            limits = [
+                "ssh connection-limit",
+                "ssh rate-limit",
+                "ftp connection-limit",
+                "ftp rate-limit",
+            ]
         else:
-            port_conf.append(re.search(r"ssh stream tcp/.*", inetd[1]).group(0))
+            limits = ["ssh connection-limit", "ssh rate-limit"]
 
-        for port in port_conf:
-            inetd_conf = re.split("[/ ]", port)
-            proto_name = inetd_conf[0]
-            conn_limit = int(inetd_conf[5])
-            rate_limit = int(inetd_conf[6])
-
-            # check for presence of rate/connection limits
-            if conn_limit < 75:
-                print(
-                    "{} connection-limit configured, deactivating".format(
-                        proto_name.upper()
-                    )
-                )
-                cli_config = self.start_shell.run(
-                    'cli -c "show configuration | display set '
-                    '| grep {} | grep connection-limit"'.format(proto_name)
-                )
-                if (
-                    self.start_shell.last_ok
-                    and re.search(r"connection-limit", cli_config[1]) is not None
-                ):
-                    cli_config = cli_config[1].split("\r\n")[1]
-                    cli_config = re.sub(" [0-9]+$", "", cli_config)
-                    cli_config = re.sub("set", "deactivate", cli_config)
-                    self.command_list.append("{};".format(cli_config))
-                else:
-                    err = "Error: failed to determine configured limits, cannot proceed"
-                    self.close(err_str=err)
-
-            if rate_limit < 150:
-                print(
-                    "{} rate-limit configured, deactivating".format(proto_name.upper())
-                )
-                cli_config = self.start_shell.run(
-                    'cli -c "show configuration | display set '
-                    '| grep {} | grep rate-limit"'.format(proto_name)
-                )
-                if (
-                    self.start_shell.last_ok
-                    and re.search(r"rate-limit", cli_config[1]) is not None
-                ):
-                    cli_config = cli_config[1].split("\r\n")[1]
-                    cli_config = re.sub(" [0-9]+$", "", cli_config)
-                    cli_config = re.sub("set", "deactivate", cli_config)
-                    self.command_list.append("{};".format(cli_config))
-                else:
-                    err = "Error: failed to determine configured limits, cannot proceed"
-                    self.close(err_str=err)
+        # check for presence of rate/connection limits
+        cli_config = ""
+        for stanza in config_stanzas:
+            config = self.start_shell.run(
+                'cli -c "show configuration {} | display set | no-more"'.format(stanza)
+            )
+            cli_config += config[1]
+        for limit in limits:
+            if (
+                cli_config
+                and re.search(r"{} [0-9]".format(limit), cli_config) is not None
+            ):
+                conf_list = cli_config.split("\r\n")
+                for conf_statement in conf_list:
+                    if re.search(r"set .* {} [0-9]".format(limit), conf_statement):
+                        conf_line = re.sub(" [0-9]+$", "", conf_statement)
+                        conf_line = re.sub("set", "deactivate", conf_line)
+                        self.command_list.append("{};".format(conf_line))
+                    if re.search(r"deactivate .* {}".format(limit), conf_statement):
+                        self.command_list.remove("{};".format(conf_line))
 
         # if limits were configured, deactivate them
         if self.command_list:
+            print("protocol rate-limit/connection-limit configuration found")
             self.start_shell.run(
                 'cli -c "edit;{}commit and-quit"'.format("".join(self.command_list))
             )
@@ -1163,6 +1174,8 @@ class SPLITCOPY:
                     "configuration. Cannot proceed".format(self.copy_proto)
                 )
                 self.close(err_str=err)
+        else:
+            return
 
     def limits_rollback(self):
         """ revert config change made to remote host
@@ -1204,6 +1217,13 @@ class SPLITCOPY:
                 "unable to delete the tmp directory {}/splitcopy_{} on remote host, "
                 "delete it manually".format(self.dest_dir, self.file_name)
             )
+
+
+class TransferError(Exception):
+    """ custom exception to indicate problem with file transfer
+    """
+
+    pass
 
 
 class FtpProgress:
