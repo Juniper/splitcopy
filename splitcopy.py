@@ -515,6 +515,7 @@ class SPLITCOPY:
         """
         host_os = self.start_shell.run("uname", timeout=30)
         if not self.start_shell.last_ok:
+            self.rm_remote_tmp = False
             self.close(err_str="failed to determine remote host os")
         self.host_os = host_os[1].split("\n")[1].rstrip()
         if self.host_os == "Linux" and self.evo_os():
@@ -524,6 +525,7 @@ class SPLITCOPY:
             self.junos = True
             return
         if not re.match(r'(Linux|FreeBSD)', self.host_os):
+            self.rm_remote_tmp = False
             self.close(err_str="remote host isn't Linux or FreeBSD")
 
     def evo_os(self):
