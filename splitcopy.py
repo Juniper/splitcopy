@@ -519,8 +519,10 @@ class SPLITCOPY:
         self.host_os = host_os[1].split("\n")[1].rstrip()
         if self.host_os == "Linux" and self.evo_os():
             self.evo = True
+            return
         elif self.junos_os():
             self.junos = True
+            return
         if not re.match(r'(Linux|FreeBSD)', self.host_os):
             self.close(err_str="remote host isn't Linux or FreeBSD")
 
