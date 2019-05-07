@@ -16,12 +16,15 @@ import datetime
 import fnmatch
 import functools
 import getpass
+import hashlib
 import multiprocessing
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import platform
 import tempfile
 import warnings
 from contextlib import contextmanager
@@ -42,38 +45,34 @@ warnings.simplefilter("ignore", utils.CryptographyDeprecationWarning)
 def main():
     """ body of script
     """
+    if platform.system() == "Windows":
+        raise RuntimeError("script will not run on windows")
+
     parser = argparse.ArgumentParser()
     parser.add_argument("filepath", help="Path to filename to work on")
-    parser.add_argument("host", help="remote host to connect to")
-    parser.add_argument("user", help="user to authenticate on remote host")
     parser.add_argument(
-        "-p", "--password", nargs=1, help="password to authenticate on remote host"
+        "userhost", help="username and remote host to connect to. e.g. user@host"
     )
-    parser.add_argument("-d", "--destdir", nargs=1, help="directory to put file")
     parser.add_argument(
-        "-s",
+        "--pwd", nargs=1, help="password to authenticate on remote host"
+    )
+    parser.add_argument("--dst", nargs=1, help="directory to put file")
+    parser.add_argument(
         "--scp",
         action="store_const",
         const="scp",
         help="use scp to copy files instead of ftp",
     )
     parser.add_argument(
-        "-g",
-        "--get",
-        action="store_const",
-        const="get",
-        help="get file from remote host",
+        "--get", action="store_const", const="get", help="get file from remote host"
     )
     args = parser.parse_args()
 
-    if not args.user:
-        parser.error("must specify a username")
+    if not args.userhost:
+        parser.error("must specify a username and hostname to connect to")
 
-    if not args.host:
-        parser.error("must specify a remote host")
-
-    host = args.host
-    user = args.user
+    user = args.userhost.split("@")[0]
+    host = args.userhost.split("@")[1]
     get = args.get
 
     if not get and not os.path.isfile(args.filepath):
@@ -81,13 +80,13 @@ def main():
             "source file {} does not exist - cannot proceed".format(args.filepath)
         )
 
-    if not args.password:
+    if not args.pwd:
         password = getpass.getpass(prompt="Password: ", stream=None)
     else:
-        password = args.password[0]
+        password = args.pwd[0]
 
-    if args.destdir:
-        dest_dir = args.destdir[0]
+    if args.dst:
+        dest_dir = args.dst[0]
     else:
         dest_dir = "/var/tmp"
 
@@ -105,17 +104,23 @@ def main():
 
     print("checking remote port(s) are open...")
     try:
-        if not port_check(host, "22"):
-            raise SystemExit("port 22 isn't open on remote host, can't proceed")
-    except subprocess.TimeoutExpired:
+        port_check(host, 22)
+    except ConnectionRefusedError:
+        raise SystemExit("port 22 isn't open on remote host, can't proceed")
+    except socket.timeout:
         raise SystemExit(
             "ssh port check timed out after 10 seconds, "
             "is the host reachable and ssh enabled?"
         )
-    except (subprocess.SubprocessError, subprocess.CalledProcessError) as err:
+    except (socket.gaierror, socket.herror) as err:
         raise SystemExit(
-            "an error occurred during remote ssh port check, "
-            "the error was:\n{}".format(err)
+            "ip or hostname supplied is invalid or unreachable. "
+            "error was {}".format(err)
+        )
+    except Exception as err:
+        raise SystemExit(
+            "failed to connect to port 22 on remote host"
+            "error was {}".fornat(err)
         )
 
     if args.scp:
@@ -123,17 +128,9 @@ def main():
         print("using SCP for file transfer")
     else:
         try:
-            if port_check(host, "21"):
-                copy_proto = "ftp"
-                print("using FTP for file transfer")
-            else:
-                copy_proto = "scp"
-                print("using SCP for file transfer")
-        except (
-            subprocess.TimeoutExpired,
-            subprocess.SubprocessError,
-            subprocess.CalledProcessError,
-        ):
+            port_check(host, 21)
+            copy_proto = "ftp"
+        except:
             copy_proto = "scp"
             print("using SCP for file transfer")
 
@@ -155,32 +152,18 @@ def main():
 
 
 def port_check(host, port):
-    """ checks if a port is open on remote host
+    """ checks if a port is open on remote host, emulates 'nc -z <host> <port>'
     Args:
         host(str) - host to connect to
-        port(str) - port to connect to
+        port(int) - port to connect to
     Returns:
-        (bool) True if port is open, False if port is closed
+        None
     Raises:
-        subprocess.TimeoutExpired - the subprocess timed out
-        subprocess.SubprocessError - the subprocess returned an error
-        subprocess.CalledProcessError - the called process returned a non zero exit code
+        raises any exception
     """
     try:
-        if subprocess.call(
-            ["nc", "-z", host, port],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-        ):
-            return False
-        else:
-            return True
-    except (
-        subprocess.TimeoutExpired,
-        subprocess.SubprocessError,
-        subprocess.CalledProcessError,
-    ):
+        socket.create_connection((host, port), 10)
+    except:
         raise
 
 
@@ -524,7 +507,7 @@ class SPLITCOPY:
         elif self.junos_os():
             self.junos = True
             return
-        if not re.match(r'(Linux|FreeBSD)', self.host_os):
+        if not re.match(r"(Linux|FreeBSD)", self.host_os):
             self.rm_remote_tmp = False
             self.close(err_str="remote host isn't Linux or FreeBSD")
 
@@ -632,16 +615,9 @@ class SPLITCOPY:
             )
             self.close(err_str)
 
-        try:
-            subprocess.check_call(
-                ["ls", dst], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-        except subprocess.TimeoutExpired:
-            self.close(err_str="timeout whilst checking if recombined file exists")
-        except (subprocess.SubprocessError, subprocess.CalledProcessError) as err:
+        if not os.path.isfile(dst):
             err_str = (
-                "an error occurred while verifying recombined file exists, "
-                "the error was:\n{}".format(err)
+                "recombined file isn't found at this path {}, exiting"
             )
             self.close(err_str)
 
@@ -821,22 +797,14 @@ class SPLITCOPY:
             None
         """
         print("generating local sha1...")
-        try:
-            sha1_str = subprocess.check_output(
-                ["sha1sum", self.dest_dir + "/" + self.file_name]
-            ).decode()
-        except (
-            subprocess.TimeoutExpired,
-            subprocess.SubprocessError,
-            subprocess.CalledProcessError,
-        ) as err:
-            err = (
-                "an error occurred generating a local sha1, "
-                "the error was:\n{}".format(err)
-            )
-            self.close(err_str=err)
-        finally:
-            local_sha1 = sha1_str.split()[0]
+        buf_size = 131072
+        sha1 = hashlib.sha1()
+        with open(self.dest_dir + "/" + self.file_name, 'rb') as combined_file:
+            data = combined_file.read(buf_size)
+            while len(data) > 0:
+               sha1.update(data)
+               data = combined_file.read(buf_size)
+        local_sha1 = sha1.hexdigest()
         if local_sha1 == self.remote_sha1:
             print(
                 "local and remote sha1 match\nfile has been "
@@ -867,21 +835,14 @@ class SPLITCOPY:
             self.local_sha1 = sha1file.read().rstrip()
         else:
             print("sha1 not found, generating sha1...")
-            try:
-                sha1_str = subprocess.check_output(["sha1sum", self.file_path]).decode()
-            except (
-                subprocess.TimeoutExpired,
-                subprocess.SubprocessError,
-                subprocess.CalledProcessError,
-            ) as err:
-                err = (
-                    "an error occurred generating a local sha1, "
-                    "the error was:\n{}".format(err)
-                )
-                self.rm_remote_tmp = False
-                self.close(err_str=err)
-            finally:
-                self.local_sha1 = sha1_str.split()[0]
+        buf_size = 131072
+        sha1 = hashlib.sha1()
+        with open(self.file_path, 'rb') as original_file:
+            data = original_file.read(buf_size)
+            while len(data) > 0:
+               sha1.update(data)
+               data = original_file.read(buf_size)
+        self.local_sha1 = sha1.hexdigest()
 
     def mkdir_remote(self):
         """ creates a tmp directory on the remote host
