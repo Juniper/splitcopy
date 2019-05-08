@@ -69,37 +69,43 @@ def main():
     args = parser.parse_args()
 
     if not args.userhost:
-        parser.error("must specify a username and hostname to connect to")
+        parser.error(
+            "must specify a username and remote host to connect to. e.g. user@host"
+        )
 
     user = args.userhost.split("@")[0]
     host = args.userhost.split("@")[1]
     get = args.get
-
-    if not get and not os.path.isfile(args.filepath):
-        raise SystemExit(
-            "source file {} does not exist - cannot proceed".format(args.filepath)
-        )
-
-    if not args.pwd:
-        password = getpass.getpass(prompt="Password: ", stream=None)
-    else:
-        password = args.pwd[0]
 
     if args.dst:
         dest_dir = args.dst[0]
     else:
         dest_dir = "/var/tmp"
 
-    if re.search("/", args.filepath):
-        file_name = args.filepath.rsplit("/", 1)[1]
-    else:
-        file_name = args.filepath
-
-    file_path = os.path.abspath(args.filepath)
     if get:
+        # filepath is remote, must be posix path
+        file_path = args.filepath
+        file_name = os.path.basename(file_path)
         file_size = 0
+        if not os.path.isdir(dest_dir):
+            raise SystemExit(
+                "destination directory {} does not exist on localhost. "
+                "use the --dst flag to specify a valid directory".format(dest_dir)
+            )
     else:
+        # filepath is local path could be nt or posix
+        file_path = os.path.abspath(args.filepath)
+        if not os.path.isfile(file_path):
+            raise SystemExit(
+                "source file {} does not exist - cannot proceed".format(file_path)
+            )
+        file_name = os.path.basename(file_path)
         file_size = os.path.getsize(file_path)
+
+    if not args.pwd:
+        password = getpass.getpass(prompt="Password: ", stream=None)
+    else:
+        password = args.pwd[0]
     start_time = datetime.datetime.now()
 
     print("checking remote port(s) are open...")
@@ -119,7 +125,8 @@ def main():
         )
     except Exception as err:
         raise SystemExit(
-            "failed to connect to port 22 on remote host" "error was {}".fornat(err)
+            "failed to connect to port 22 on remote host. "
+            "error was {}".format(err)
         )
 
     if args.scp:
@@ -367,7 +374,11 @@ class SPLITCOPY:
                 # check if local directory exists
                 if not os.path.isdir(self.dest_dir):
                     self.rm_remote_tmp = False
-                    self.close(err_str="local directory specified does not exist")
+                    self.close(
+                        err_str="local directory specified {} does not exist".format(
+                            self.dest_dir
+                        )
+                    )
 
                 # cleanup previous remote tmp directory if found
                 self.remote_cleanup(True)
@@ -743,7 +754,7 @@ class SPLITCOPY:
                                 total_bytes += buf_size
                             else:
                                 return
-                    if sfx_2 == 'z':
+                    if sfx_2 == "z":
                         sfx_1 = "b"
                         sfx_2 = "a"
                     else:
