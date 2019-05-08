@@ -16,13 +16,13 @@ import datetime
 import fnmatch
 import functools
 import getpass
+import glob
 import hashlib
 import multiprocessing
 import os
 import re
 import shutil
 import socket
-import subprocess
 import sys
 import platform
 import tempfile
@@ -119,8 +119,7 @@ def main():
         )
     except Exception as err:
         raise SystemExit(
-            "failed to connect to port 22 on remote host"
-            "error was {}".fornat(err)
+            "failed to connect to port 22 on remote host" "error was {}".fornat(err)
         )
 
     if args.scp:
@@ -248,7 +247,7 @@ class SPLITCOPY:
 
                 with self.tempdir():
                     # split file into chunks
-                    self.split_file()
+                    self.split_file_local()
 
                     # add chunk names to a list
                     sfiles = []
@@ -304,7 +303,7 @@ class SPLITCOPY:
                 loop_end = datetime.datetime.now()
 
                 # combine chunks
-                self.join_files()
+                self.join_files_remote()
 
                 # remove remote tmp dir
                 self.remote_cleanup()
@@ -563,8 +562,8 @@ class SPLITCOPY:
         else:
             raise SystemExit(1)
 
-    def join_files(self):
-        """ concatenates the file chunks into one file
+    def join_files_remote(self):
+        """ concatenates the file chunks into one file on remote host
         Args:
             self - class variables inherited from __init__
         Returns:
@@ -587,7 +586,7 @@ class SPLITCOPY:
             )
 
     def join_files_local(self):
-        """ concatenates the file chunks into one file
+        """ concatenates the file chunks into one file on local host
         Args:
             self - class variables inherited from __init__
         Returns:
@@ -596,29 +595,18 @@ class SPLITCOPY:
             None
         """
         print("joining files...")
-        src = self.local_tmpdir + "/" + self.file_name + "*"
-        dst = self.dest_dir + "/" + self.file_name
-        try:
-            subprocess.check_call(
-                ["cat {} > {}".format(src, dst)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=600,
-                shell=True,
-            )
-        except subprocess.TimeoutExpired:
-            self.close(err_str="local file join operation timed out after 10 mins")
-        except (subprocess.SubprocessError, subprocess.CalledProcessError) as err:
-            err_str = (
-                "an error occurred while joining the file, "
-                "the error was:\n{}".format(err)
-            )
-            self.close(err_str)
-
-        if not os.path.isfile(dst):
-            err_str = (
-                "recombined file isn't found at this path {}, exiting"
-            )
+        buf_size = 131072
+        src_files = glob.glob(self.local_tmpdir + "/" + self.file_name + "*")
+        dst_file = self.dest_dir + "/" + self.file_name
+        with open(dst_file, "wb") as dst:
+            for src in sorted(src_files):
+                with open(src, "rb") as chunk:
+                    data = chunk.read(buf_size)
+                    while len(data) > 0:
+                        dst.write(data)
+                        data = chunk.read(buf_size)
+        if not os.path.isfile(dst_file):
+            err_str = "recombined file {} isn't found, exiting"
             self.close(err_str)
 
     def remote_sha1_put(self):
@@ -725,9 +713,9 @@ class SPLITCOPY:
         else:
             self.split_size = int(divmod(self.file_size, scp_bsd6_max)[0])
 
-    def split_file(self):
-        """ splits file into chunks. The chunk size varies depending on the
-            protocol used to copy, and the FreeBSD version
+    def split_file_local(self):
+        """ splits file into chunks of size already determined in file_split_size()
+            This function emulates GNU split.
         Args:
             self - class variables inherited from __init__
         Returns:
@@ -737,21 +725,35 @@ class SPLITCOPY:
         """
         print("splitting file...")
         try:
-            subprocess.call(
-                ["split", "-b", str(self.split_size), self.file_path, self.file_name],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=600,
-            )
-        except subprocess.TimeoutExpired:
-            self.rm_remote_tmp = False
-            self.close(err_str="local file splitting operation timed out after 10 mins")
-        except (subprocess.SubprocessError, subprocess.CalledProcessError) as err:
-            self.rm_remote_tmp = False
+            buf_size = 1024
+            total_bytes = 0
+            with open(self.file_path, "rb") as src:
+                sfx_1 = "a"
+                sfx_2 = "a"
+                while total_bytes < self.file_size:
+                    with open(
+                        "{}{}{}".format(self.file_name, sfx_1, sfx_2), "wb"
+                    ) as chunk:
+                        chunk_bytes = 0
+                        while chunk_bytes < self.split_size:
+                            data = src.read(buf_size)
+                            if data:
+                                chunk.write(data)
+                                chunk_bytes += buf_size
+                                total_bytes += buf_size
+                            else:
+                                return
+                    if sfx_2 == 'z':
+                        sfx_1 = "b"
+                        sfx_2 = "a"
+                    else:
+                        sfx_2 = chr(ord(sfx_2) + 1)
+        except Exception as err:
             err_str = (
                 "an error occurred while splitting the file, "
                 "the error was:\n{}".format(err)
             )
+            self.rm_remote_tmp = False
             self.close(err_str)
 
     def split_file_remote(self):
@@ -799,11 +801,12 @@ class SPLITCOPY:
         print("generating local sha1...")
         buf_size = 131072
         sha1 = hashlib.sha1()
-        with open(self.dest_dir + "/" + self.file_name, 'rb') as combined_file:
-            data = combined_file.read(buf_size)
+        dst_file = self.dest_dir + "/" + self.file_name
+        with open(dst_file, "rb") as dst:
+            data = dst.read(buf_size)
             while len(data) > 0:
-               sha1.update(data)
-               data = combined_file.read(buf_size)
+                sha1.update(data)
+                data = dst.read(buf_size)
         local_sha1 = sha1.hexdigest()
         if local_sha1 == self.remote_sha1:
             print(
@@ -837,11 +840,11 @@ class SPLITCOPY:
             print("sha1 not found, generating sha1...")
         buf_size = 131072
         sha1 = hashlib.sha1()
-        with open(self.file_path, 'rb') as original_file:
+        with open(self.file_path, "rb") as original_file:
             data = original_file.read(buf_size)
             while len(data) > 0:
-               sha1.update(data)
-               data = original_file.read(buf_size)
+                sha1.update(data)
+                data = original_file.read(buf_size)
         self.local_sha1 = sha1.hexdigest()
 
     def mkdir_remote(self):
@@ -875,7 +878,7 @@ class SPLITCOPY:
         Raises:
             None
         """
-        print("generating remote sha1")
+        print("generating remote sha1...")
         if self.host_os == "Linux":
             sha_bin = "sha1sum"
         else:
