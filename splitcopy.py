@@ -125,8 +125,7 @@ def main():
         )
     except Exception as err:
         raise SystemExit(
-            "failed to connect to port 22 on remote host. "
-            "error was {}".format(err)
+            "failed to connect to port 22 on remote host. error was {}".format(err)
         )
 
     if args.scp:
@@ -136,6 +135,7 @@ def main():
         try:
             port_check(host, 21)
             copy_proto = "ftp"
+            print("using FTP for file transfer")
         except:
             copy_proto = "scp"
             print("using SCP for file transfer")
@@ -370,15 +370,6 @@ class SPLITCOPY:
                         "Switching to SCP to transfer files as EVO doesn't support ftp currently"
                     )
                     self.copy_proto = "scp"
-
-                # check if local directory exists
-                if not os.path.isdir(self.dest_dir):
-                    self.rm_remote_tmp = False
-                    self.close(
-                        err_str="local directory specified {} does not exist".format(
-                            self.dest_dir
-                        )
-                    )
 
                 # cleanup previous remote tmp directory if found
                 self.remote_cleanup(True)
@@ -639,10 +630,18 @@ class SPLITCOPY:
             self.rm_remote_tmp = False
             self.config_rollback = False
             self.close(err_str=err)
-        if self.host_os == "Linux":
+
+        if self.start_shell.run("which sha1sum")[0]:
             sha_bin = "sha1sum"
-        else:
+        elif self.start_shell.run("which sha1")[0]:
             sha_bin = "sha1"
+        else:
+            self.rm_remote_tmp = False
+            self.config_rollback = False
+            self.close(
+                err_str="couldn't find a binary to generate a sha1 on the remote host"
+            )
+
         sha1_tuple = self.start_shell.run(
             "{} {}/{}".format(sha_bin, self.dest_dir, self.file_name), timeout=300
         )
@@ -653,7 +652,7 @@ class SPLITCOPY:
                 "compare against {}".format(self.local_sha1)
             )
             return
-        if self.host_os == "Linux":
+        if sha_bin == "sha1sum":
             remote_sha1 = sha1_tuple[1].split("\n")[1].split()[0].rstrip()
         else:
             remote_sha1 = sha1_tuple[1].split("\n")[1].split()[3].rstrip()
@@ -822,13 +821,13 @@ class SPLITCOPY:
         if local_sha1 == self.remote_sha1:
             print(
                 "local and remote sha1 match\nfile has been "
-                "successfully copied to /var/tmp/{}".format(self.file_name)
+                "successfully copied to {}/{}".format(self.dest_dir, self.file_name)
             )
         else:
             err = (
-                "file has been copied to /var/tmp/{}, but the "
+                "file has been copied to {}/{}, but the "
                 "local and remote sha1 do not match - "
-                "please retry".format(self.file_name)
+                "please retry".format(self.dest_dir, self.file_name)
             )
             self.rm_remote_tmp = False
             self.config_rollback = False
@@ -890,10 +889,15 @@ class SPLITCOPY:
             None
         """
         print("generating remote sha1...")
-        if self.host_os == "Linux":
+        if self.start_shell.run("which sha1sum")[0]:
             sha_bin = "sha1sum"
-        else:
+        elif self.start_shell.run("which sha1")[0]:
             sha_bin = "sha1"
+        else:
+            self.rm_remote_tmp = False
+            self.close(
+                err_str="couldn't find a binary to generate a sha1 on the remote host"
+            )
         remote_sha1 = self.start_shell.run(
             "{} {}".format(sha_bin, self.file_path), timeout=300
         )

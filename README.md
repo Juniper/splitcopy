@@ -1,12 +1,15 @@
 # Splitcopy
 
-Speeds up copying files to/from JUNOS/Evo/Linux/FreeBSD hosts.
+Improves file transfer rates when copying files to/from JUNOS/EVO/Linux/BSD hosts.  
+It achieves this by spliting a file into chunks, transferring the chunks to the remote host and recombining them.  
 
-Splits a given file into chunks in a tmp directory,
-copies these chunks and recombines them.  
-Requires 'system services ssh' configuration on remote host.  
-If using ftp to copy files (default) then 'system services ftp' is also required  
-Requires python 3.4 to run, 3.5 is faster, 3.6 is faster again  
+At a minumum, sshd must be running on the remote host.  
+On JUNOS/EVO this requires 'system services ssh' configuration.  
+
+If using ftp to copy files (default) then an ftp daemon must be running on the remote host.   
+On JUNOS this requires 'system services ftp' configuration.  
+
+Requires python 3.4 to run, recommend using 3.6+ for improved speeds. 
 
 install required module dependencies via:
 ```
@@ -16,7 +19,7 @@ Script overheads include authentication, sha1 generation/comparison, disk space 
 It can be slower than normal ftp/scp for small files as a result.
 
 Because it opens a number of simultaneous connections,
-if the router has connection/rate limits configured like this:
+if the JUNOS/EVO host has connection/rate limits configured like this:
 
 ```
 system {
@@ -33,18 +36,17 @@ The script will deactivate these limits so it can proceed, then activate them ag
 
 # Arguments
 
-`filepath`          Mandatory, the path to the file you want to copy  
-`host`              Mandatory, the host to connect to, with sshd listening on port 22  
-`user`              Mandatory, the username to connect with  
-`-p or --password`  Optional, if you'd rather not have your password stored in shell history, you can omit this and it'll prompt you instead  
-`-d or --destdir`   Optional, directory to put file  
-`-s or --scp`       Optional, use scp instead of ftp to transfer files  
-`-g or --get`       Optional, copy from remote to local host  
+`filepath` Mandatory, path to the src file you want to copy  
+`userhost` Mandatory, username and host to connect to, in format user@host  
+`--pwd`    Optional, password to auth with. If you'd rather not have the password stored in shell history, you can omit this and it'll prompt you instead  
+`--dst`    Optional, directory to put file. The default is /var/tmp/  
+`--scp`    Optional, use scp instead of ftp to transfer files  
+`--get`    Optional, copy from remote to local host  
 
 # Example FTP transfer (default method)
 
 ```
-$ ./splitcopy.py jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz 192.168.1.1 lab
+$ ./splitcopy.py /var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz lab@192.168.1.1
 Password:
 checking remote port(s) are open...
 using FTP for file transfer
@@ -72,16 +74,15 @@ data transfer = 0:00:16.831192
 total runtime = 0:00:31.520914
 ```
 
-# Example SCP transfer  
+# Example SCP 'get' transfer  
 
 ```
-$ ./splitcopy.py jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz 192.168.1.1 lab --scp
+$ ./splitcopy.py /var/log/messages lab@192.168.1.1 --scp --get
 Password:
 checking remote port(s) are open...
 using SCP for file transfer
 checking remote storage...
-sha1 not found, generating sha1...
-splitting file...
+generating remote sha1...
 starting transfer...
 10% done
 20% done
@@ -96,11 +97,11 @@ starting transfer...
 transfer complete
 joining files...
 deleting remote tmp directory...
-generating remote sha1...
+generating local sha1...
 local and remote sha1 match
-file has been successfully copied to 192.168.1.1:/var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz
-data transfer = 0:00:29.509159
-total runtime = 0:00:43.886565
+file has been successfully copied to /var/tmp/messages
+data transfer = 0:00:18.768987
+total runtime = 0:00:44.891370
 ```
 
 # Notes on using FTP
