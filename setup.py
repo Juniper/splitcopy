@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="splitcopy",
-    version='0.1',
+    version='1.0',
     url="https://github.com/Juniper/splitcopy",
     author="Chris Jenn",
     author_email="jnpr-community-netdev@juniper.net",
