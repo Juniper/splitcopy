@@ -24,7 +24,6 @@ import re
 import shutil
 import socket
 import sys
-import platform
 import tempfile
 import warnings
 from contextlib import contextmanager
@@ -45,9 +44,6 @@ warnings.simplefilter("ignore", utils.CryptographyDeprecationWarning)
 def main():
     """ body of script
     """
-    if platform.system() == "Windows":
-        raise RuntimeError("script will not run on windows")
-
     parser = argparse.ArgumentParser()
     parser.add_argument("filepath", help="Path to filename to work on")
     parser.add_argument(
@@ -73,8 +69,12 @@ def main():
             "must specify a username and remote host to connect to. e.g. user@host"
         )
 
-    user = args.userhost.split("@")[0]
-    host = args.userhost.split("@")[1]
+    try:
+        user = args.userhost.split("@")[0]
+        host = args.userhost.split("@")[1]
+    except IndexError:
+        raise SystemExit("please specify user and host in the format user@host")
+
     get = args.get
 
     if args.dst:
