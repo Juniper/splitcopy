@@ -51,19 +51,19 @@ Installation requires Python >=3.4 and associated `pip` tool
 
 Installing from Git is also supported (OS must have git installed).
 
-        To install the latest MASTER code
-        pip install git+https://github.com/Juniper/splitcopy.git
-        -or-
-        To install a specific version, branch, tag, etc.
-        pip install git+https://github.com/Juniper/splitcopy.git@<branch,tag,commit>
+    To install the latest MASTER code
+    pip install git+https://github.com/Juniper/splitcopy.git
+    -or-
+    To install a specific version, branch, tag, etc.
+    pip install git+https://github.com/Juniper/splitcopy.git@<branch,tag,commit>
 
 Upgrading has the same requirements as installation and has the same format with the addition of --upgrade
 
-        pip install -U splitcopy
+    pip install -U splitcopy
 
 
 # Usage Examples 
-##FTP transfer (default method)
+## FTP transfer (default method)
 
 ```
 $ ./splitcopy.py /var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz lab@192.168.1.1

@@ -45,7 +45,7 @@ def main():
     """ body of script
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("filepath", help="Path to filename to work on")
+    parser.add_argument("filepath", help="Path to the file you want to copy")
     parser.add_argument(
         "userhost", help="username and remote host to connect to. e.g. user@host"
     )
