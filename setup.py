@@ -7,7 +7,7 @@ setup(
     author="Chris Jenn",
     author_email="jnpr-community-netdev@juniper.net",
     license="Apache 2.0",
-    description="Increases large file transfer rates by splitting the file into chunks, transferring them simultaneously via ftp or scp then recombining them",
+    description="Improves file transfer rates when copying files to/from JUNOS/EVO/Linux/BSD hosts.",
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     keywords=['ftp', 'ssh', 'scp', 'transfer'],

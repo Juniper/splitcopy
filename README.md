@@ -34,7 +34,7 @@ system {
 
 The script will deactivate these limits so it can proceed, then activate them again.  
 
-# Arguments
+## Arguments
 
 `filepath` Mandatory, path to the src file you want to copy  
 `userhost` Mandatory, username and host to connect to, in format user@host  
@@ -43,7 +43,27 @@ The script will deactivate these limits so it can proceed, then activate them ag
 `--scp`    Optional, use scp instead of ftp to transfer files  
 `--get`    Optional, copy from remote to local host  
 
-# Example FTP transfer (default method)
+# INSTALLATION
+
+Installation requires Python >=3.4 and associated `pip` tool
+
+    pip install splitcopy
+
+Installing from Git is also supported (OS must have git installed).
+
+        To install the latest MASTER code
+        pip install git+https://github.com/Juniper/splitcopy.git
+        -or-
+        To install a specific version, branch, tag, etc.
+        pip install git+https://github.com/Juniper/splitcopy.git@<branch,tag,commit>
+
+Upgrading has the same requirements as installation and has the same format with the addition of --upgrade
+
+        pip install -U splitcopy
+
+
+# Usage Examples 
+##FTP transfer (default method)
 
 ```
 $ ./splitcopy.py /var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz lab@192.168.1.1
@@ -74,7 +94,7 @@ data transfer = 0:00:16.831192
 total runtime = 0:00:31.520914
 ```
 
-# Example SCP 'get' transfer  
+## SCP transfer with 'get'
 
 ```
 $ ./splitcopy.py /var/log/messages lab@192.168.1.1 --scp --get
@@ -104,7 +124,7 @@ data transfer = 0:00:18.768987
 total runtime = 0:00:44.891370
 ```
 
-# Notes on using FTP
+## Notes on using FTP
 
 FTP is the default transfer method.  
 FTP progress on --get operations is supported from py-junos-eznc v2.2.2  
@@ -124,7 +144,7 @@ May  2 04:46:59   /kernel: maxproc limit exceeded by uid 2001, please see tuning
 The script modulates the number of chunks to match the maximum number of simultaneous transfers possible (based on Python version and number of cpus).   
 The maximum number of user owned processes that could be created is <= 44
 
-# Notes on using SCP
+## Notes on using SCP
 
 The version of Python used has a big impact.  
 If using < 3.6 the maximum number of simultaneous transfers is 5.  
@@ -152,3 +172,17 @@ May  2 04:46:59   /kernel: maxproc limit exceeded by uid 2001, please see tuning
 ```
 The script modulates the number of chunks to match the maximum number of simultaneous transfers possible (based on Python version, number of cpus and Junos FreeBSD version).  
 The maximum number of user owned processes that could be created is <= 44
+
+
+
+## LICENSE
+
+Apache 2.0
+
+## CONTRIBUTORS
+
+Juniper Networks is actively contributing to and maintaining this repo. Please contact jnpr-community-netdev@juniper.net for any queries.
+
+*Contributors:*
+
+[Chris Jenn](https://github.com/ipmonk)
