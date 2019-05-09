@@ -1,9 +1,9 @@
 # Splitcopy
 
 Improves file transfer rates when copying files to/from JUNOS/EVO/Linux/BSD hosts.  
-It achieves this by spliting a file into chunks, transferring the chunks to the remote host and recombining them.  
+It achieves this by splitting a file into chunks, transferring the chunks to the remote host and recombining them.  
 
-At a minumum, sshd must be running on the remote host.  
+At a minimum, sshd must be running on the remote host.  
 On JUNOS/EVO this requires 'system services ssh' configuration.  
 
 If using ftp to copy files (default) then an ftp daemon must be running on the remote host.   
