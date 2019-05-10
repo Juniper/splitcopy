@@ -236,7 +236,8 @@ class SPLITCOPY:
                 # evo doesn't support ftp
                 if self.copy_proto == "ftp" and self.evo:
                     print(
-                        "Switching to SCP to transfer files as EVO doesn't support ftp currently"
+                        "Switching to SCP to transfer files as "
+                        "EVO doesn't support ftp currently"
                     )
                     self.copy_proto = "scp"
 
@@ -367,7 +368,8 @@ class SPLITCOPY:
                 # evo doesn't support ftp
                 if self.copy_proto == "ftp" and self.evo:
                     print(
-                        "Switching to SCP to transfer files as EVO doesn't support ftp currently"
+                        "Switching to SCP to transfer files as "
+                        "EVO doesn't support ftp currently"
                     )
                     self.copy_proto = "scp"
 
@@ -582,8 +584,9 @@ class SPLITCOPY:
         )
         if not self.start_shell.last_ok:
             self.close(
-                err_str="failed to combine chunks on remote host. error was:\n{}".format(
-                    cmd_out[1]
+                err_str=(
+                    "failed to combine chunks on remote host. "
+                    "error was:\n{}".format(cmd_out[1])
                 )
             )
 
