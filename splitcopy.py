@@ -215,6 +215,7 @@ class SPLITCOPY:
         self.host_os = None
         self.evo = False
         self.junos = False
+        self.sha_bin = None
 
     def put(self):
         """ initiates the connection to the remote host
@@ -232,6 +233,9 @@ class SPLITCOPY:
             with StartShell(self.dev) as self.start_shell:
                 # determine remote host os
                 self.which_os()
+
+                # check required binaries exist on remote host
+                self.req_binaries()
 
                 # evo doesn't support ftp
                 if self.copy_proto == "ftp" and self.evo:
@@ -364,6 +368,9 @@ class SPLITCOPY:
             with StartShell(self.dev) as self.start_shell:
                 # determine remote host os
                 self.which_os()
+
+                # check required binaries exist on remote host
+                self.req_binaries()
 
                 # evo doesn't support ftp
                 if self.copy_proto == "ftp" and self.evo:
@@ -506,13 +513,8 @@ class SPLITCOPY:
         self.host_os = host_os[1].split("\n")[1].rstrip()
         if self.host_os == "Linux" and self.evo_os():
             self.evo = True
-            return
         elif self.junos_os():
             self.junos = True
-            return
-        if not re.match(r"(Linux|FreeBSD)", self.host_os):
-            self.rm_remote_tmp = False
-            self.close(err_str="remote host isn't Linux or FreeBSD")
 
     def evo_os(self):
         """ determines if host is EVO
@@ -537,6 +539,42 @@ class SPLITCOPY:
         """
         self.start_shell.run("uname -i | egrep 'JUNIPER|JNPR'", timeout=30)
         return self.start_shell.last_ok
+
+    def req_binaries(self):
+        """ ensures required binaries exist on remote host
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            None
+        Raises:
+            None
+        """
+        if self.get_op:
+            req_bins = ["dd", "ls", "df", "rm"]
+        else:
+            req_bins = ["cat", "ls", "df", "rm"]
+        for req_bin in req_bins:
+            if not self.start_shell.run("which {}".format(req_bin))[0]:
+                self.rm_remote_tmp = False
+                self.close(
+                    err_str=(
+                        "required binary '{}' is missing from remote "
+                        "host".format(req_bin)
+                    )
+                )
+        sha1_bins = ["sha1sum", "shasum", "sha1"]
+        for req_bin in sha1_bins:
+            if self.start_shell.run("which {}".format(req_bin))[0]:
+                self.sha_bin = req_bin
+                break
+        if not self.sha_bin:
+            self.rm_remote_tmp = False
+            self.close(
+                err_str=(
+                    "required binary 'sha1sum||shasum||sha1' used to "
+                    "generate a sha1 on the remote host is missing"
+                )
+            )
 
     def close(self, err_str=None):
         """ Called when we want to exit the script
@@ -607,7 +645,7 @@ class SPLITCOPY:
             for src in sorted(src_files):
                 with open(src, "rb") as chunk:
                     data = chunk.read(buf_size)
-                    while len(data) > 0:
+                    while data:
                         dst.write(data)
                         data = chunk.read(buf_size)
         if not os.path.isfile(dst_file):
@@ -634,19 +672,8 @@ class SPLITCOPY:
             self.config_rollback = False
             self.close(err_str=err)
 
-        if self.start_shell.run("which sha1sum")[0]:
-            sha_bin = "sha1sum"
-        elif self.start_shell.run("which sha1")[0]:
-            sha_bin = "sha1"
-        else:
-            self.rm_remote_tmp = False
-            self.config_rollback = False
-            self.close(
-                err_str="couldn't find a binary to generate a sha1 on the remote host"
-            )
-
         sha1_tuple = self.start_shell.run(
-            "{} {}/{}".format(sha_bin, self.dest_dir, self.file_name), timeout=300
+            "{} {}/{}".format(self.sha_bin, self.dest_dir, self.file_name), timeout=300
         )
         if not self.start_shell.last_ok:
             print(
@@ -655,7 +682,7 @@ class SPLITCOPY:
                 "compare against {}".format(self.local_sha1)
             )
             return
-        if sha_bin == "sha1sum":
+        if self.sha_bin == "sha1sum" or self.sha_bin == "shasum":
             remote_sha1 = sha1_tuple[1].split("\n")[1].split()[0].rstrip()
         else:
             remote_sha1 = sha1_tuple[1].split("\n")[1].split()[3].rstrip()
@@ -817,7 +844,7 @@ class SPLITCOPY:
         dst_file = self.dest_dir + "/" + self.file_name
         with open(dst_file, "rb") as dst:
             data = dst.read(buf_size)
-            while len(data) > 0:
+            while data:
                 sha1.update(data)
                 data = dst.read(buf_size)
         local_sha1 = sha1.hexdigest()
@@ -855,7 +882,7 @@ class SPLITCOPY:
         sha1 = hashlib.sha1()
         with open(self.file_path, "rb") as original_file:
             data = original_file.read(buf_size)
-            while len(data) > 0:
+            while data:
                 sha1.update(data)
                 data = original_file.read(buf_size)
         self.local_sha1 = sha1.hexdigest()
@@ -892,23 +919,17 @@ class SPLITCOPY:
             None
         """
         print("generating remote sha1...")
-        if self.start_shell.run("which sha1sum")[0]:
-            sha_bin = "sha1sum"
-        elif self.start_shell.run("which sha1")[0]:
-            sha_bin = "sha1"
-        else:
-            self.rm_remote_tmp = False
-            self.close(
-                err_str="couldn't find a binary to generate a sha1 on the remote host"
-            )
         remote_sha1 = self.start_shell.run(
-            "{} {}".format(sha_bin, self.file_path), timeout=300
+            "{} {}".format(self.sha_bin, self.file_path), timeout=300
         )
-        if self.start_shell.last_ok:
-            self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[3].rstrip()
-        else:
+        if not self.start_shell.last_ok:
             self.rm_remote_tmp = False
             self.close(err_str="failed to generate remote sha1")
+
+        if self.sha_bin == "sha1sum" or self.sha_bin == "shasum":
+            self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[0].rstrip()
+        else:
+            self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[3].rstrip()
 
     def remote_filesize(self):
         """  determines the remote file size in bytes
@@ -993,7 +1014,6 @@ class SPLITCOPY:
                 except Exception as err:
                     print("retrying file {} due to error {}".format(sfile, err))
                     retry -= 1
-                    pass
         else:
             while retry:
                 try:
@@ -1007,7 +1027,6 @@ class SPLITCOPY:
                 except:
                     print("retrying file {}".format(sfile))
                     retry -= 1
-                    pass
         if not success:
             raise TransferError
 
@@ -1040,7 +1059,6 @@ class SPLITCOPY:
                 except Exception as err:
                     print("retrying file {} due to error {}".format(sfile, err))
                     retry -= 1
-                    pass
         else:
             while retry:
                 try:
@@ -1054,7 +1072,6 @@ class SPLITCOPY:
                 except Exception as err:
                     print("retrying file {} due to error {}".format(sfile, err))
                     retry -= 1
-                    pass
         if not success:
             raise TransferError
 
