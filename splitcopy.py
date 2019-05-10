@@ -235,8 +235,7 @@ class SPLITCOPY:
                 self.which_os()
 
                 # check required binaries exist on remote host
-                if not self.junos and not self.evo:
-                    self.req_binaries()
+                self.req_binaries()
 
                 # evo doesn't support ftp
                 if self.copy_proto == "ftp" and self.evo:
@@ -371,8 +370,7 @@ class SPLITCOPY:
                 self.which_os()
 
                 # check required binaries exist on remote host
-                if not self.junos and not self.evo:
-                    self.req_binaries()
+                self.req_binaries()
 
                 # evo doesn't support ftp
                 if self.copy_proto == "ftp" and self.evo:
@@ -551,19 +549,6 @@ class SPLITCOPY:
         Raises:
             None
         """
-        if self.get_op:
-            req_bins = ["dd", "ls", "df", "rm"]
-        else:
-            req_bins = ["cat", "ls", "df", "rm"]
-        for req_bin in req_bins:
-            if not self.start_shell.run("which {}".format(req_bin))[0]:
-                self.rm_remote_tmp = False
-                self.close(
-                    err_str=(
-                        "required binary '{}' is missing from remote "
-                        "host".format(req_bin)
-                    )
-                )
         sha1_bins = ["sha1sum", "shasum", "sha1"]
         for req_bin in sha1_bins:
             if self.start_shell.run("which {}".format(req_bin))[0]:
@@ -574,9 +559,23 @@ class SPLITCOPY:
             self.close(
                 err_str=(
                     "required binary 'sha1sum||shasum||sha1' used to "
-                    "generate a sha1 on the remote host is missing"
+                    "generate a sha1 on the remote host isn't found"
                 )
             )
+        if not self.junos and not self.evo:
+            if self.get_op:
+                req_bins = ["dd", "ls", "df", "rm"]
+            else:
+                req_bins = ["cat", "ls", "df", "rm"]
+            for req_bin in req_bins:
+                if not self.start_shell.run("which {}".format(req_bin))[0]:
+                    self.rm_remote_tmp = False
+                    self.close(
+                        err_str=(
+                            "required binary '{}' is missing from remote "
+                            "host".format(req_bin)
+                        )
+                    )
 
     def close(self, err_str=None):
         """ Called when we want to exit the script
