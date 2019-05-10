@@ -235,7 +235,8 @@ class SPLITCOPY:
                 self.which_os()
 
                 # check required binaries exist on remote host
-                self.req_binaries()
+                if not self.junos and not self.evo:
+                    self.req_binaries()
 
                 # evo doesn't support ftp
                 if self.copy_proto == "ftp" and self.evo:
@@ -370,7 +371,8 @@ class SPLITCOPY:
                 self.which_os()
 
                 # check required binaries exist on remote host
-                self.req_binaries()
+                if not self.junos and not self.evo:
+                    self.req_binaries()
 
                 # evo doesn't support ftp
                 if self.copy_proto == "ftp" and self.evo:
