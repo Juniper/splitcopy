@@ -1,6 +1,6 @@
 # Splitcopy
 
-Improves file transfer rates when copying files to/from JUNOS/EVO/Linux/BSD hosts.  
+Improves file transfer rates when copying files to/from JUNOS/EVO/\*nix hosts.  
 It achieves this by splitting a file into chunks, transferring the chunks to the remote host and recombining them.  
 
 At a minimum, sshd must be running on the remote host.  
@@ -9,7 +9,7 @@ On JUNOS/EVO this requires 'system services ssh' configuration.
 If using ftp to copy files (default) then an ftp daemon must be running on the remote host.   
 On JUNOS this requires 'system services ftp' configuration.  
 
-Requires python 3.4 to run, recommend using 3.6+ for improved speeds. 
+Requires Python 3.4, recommend using >= 3.6 for improved speeds due to asyncio improvements  
 
 install required module dependencies via:
 ```

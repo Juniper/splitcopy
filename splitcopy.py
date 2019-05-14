@@ -498,7 +498,8 @@ class SPLITCOPY:
         return loop_start, loop_end
 
     def which_os(self):
-        """ determine if host is Linux/FreeBSD
+        """ determine if host is JUNOS/EVO/*nix
+            no support for Windows OS running OpenSSH
         Args:
             self - class variables inherited from __init__
         Returns:
