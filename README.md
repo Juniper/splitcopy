@@ -9,12 +9,6 @@ On JUNOS/EVO this requires 'system services ssh' configuration.
 If using ftp to copy files (default) then an ftp daemon must be running on the remote host.   
 On JUNOS this requires 'system services ftp' configuration.  
 
-Requires Python 3.4, recommend using >= 3.6 for improved speeds due to asyncio improvements  
-
-install required module dependencies via:
-```
-python3 -m pip install junos-eznc
-```
 Script overheads include authentication, sha1 generation/comparison, disk space check, file split and join.  
 It can be slower than normal ftp/scp for small files as a result.
 
@@ -45,7 +39,7 @@ The script will deactivate these limits so it can proceed, then activate them ag
 
 # INSTALLATION
 
-Installation requires Python >=3.4 and associated `pip` tool
+Installation requires Python >= 3.4 and associated `pip` tool, Python >= 3.6 is recommended due to improvements in asyncio  
 
     pip install splitcopy
 
@@ -59,7 +53,7 @@ Installing from Git is also supported (OS must have git installed).
 
 Upgrading has the same requirements as installation and has the same format with the addition of --upgrade
 
-    pip install -U splitcopy
+    pip install splitcopy --upgrade
 
 
 # Usage Examples 
