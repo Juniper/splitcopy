@@ -968,7 +968,18 @@ class SPLITCOPY:
         if not self.start_shell.last_ok:
             self.rm_remote_tmp = False
             self.close(err_str="failed to determine remote disk space available")
-        avail_blocks = df_tuple[1].split("\n")[2].split()[3].rstrip()
+        df_num = len(df_tuple[1].split("\n")) - 2
+        if re.match(r'^ ', df_tuple[1].split("\n")[df_num]):
+            split_num = 2
+        else:
+            split_num = 3
+        try:
+            avail_blocks = df_tuple[1].split("\n")[df_num].split()[split_num].rstrip()
+        except:
+            self.rm_remote_tmp = False
+            err_str = "unable to determine available blocks on remote host"
+            self.close(err_str)
+
         avail_bytes = int(avail_blocks) * 1024
         if self.file_size * multiplier > avail_bytes:
             self.rm_remote_tmp = False
