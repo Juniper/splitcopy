@@ -150,7 +150,7 @@ Using SCP method will generate the following processes on the remote host:
 
 In FreeBSD 10 based Junos each scp transfer creates 2 user owned processes and 1 root owned process: 
 ```
-root 28626   0.0  0.0   63248   5724  -  Ss   11:59AM     0:00.11 sshd: labroot@notty (sshd)
+root 28626   0.0  0.0   63248   5724  -  Ss   11:59AM     0:00.11 sshd: lab@notty (sshd)
 lab  28639   0.0  0.0  734108   4004  -  Is   12:00PM     0:00.01 cli -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/
 lab  28640   0.0  0.0   24768   3516  -  S    12:00PM     0:00.01 scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/
 ```

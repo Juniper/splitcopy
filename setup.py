@@ -2,12 +2,12 @@ from setuptools import setup
 
 setup(
     name="splitcopy",
-    version='1.0.1',
+    version='1.0.2',
     url="https://github.com/Juniper/splitcopy",
     author="Chris Jenn",
     author_email="jnpr-community-netdev@juniper.net",
     license="Apache 2.0",
-    description="Improves file transfer rates when copying files to/from JUNOS/EVO/Linux/BSD hosts.",
+    description="Improves file transfer rates when copying files to/from JUNOS/EVO/*nix hosts",
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     keywords=['ftp', 'ssh', 'scp', 'transfer'],
