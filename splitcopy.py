@@ -903,7 +903,7 @@ class SPLITCOPY:
         Raises:
             None
         """
-        ts = time.strftime("%Y%m%H%M%S")
+        ts = time.strftime("%y%m%d%H%M%S")
         if self.get_op:
             self.remote_tmpdir = "/var/tmp/splitcopy_{}.{}".format(self.file_name, ts)
         else:
