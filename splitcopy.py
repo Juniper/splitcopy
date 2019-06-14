@@ -25,6 +25,7 @@ import shutil
 import socket
 import sys
 import tempfile
+import time
 import warnings
 from contextlib import contextmanager
 from paramiko.ssh_exception import SSHException
@@ -32,6 +33,7 @@ from paramiko.ssh_exception import ChannelException
 from paramiko.ssh_exception import BadHostKeyException
 from paramiko.ssh_exception import AuthenticationException
 from paramiko.ssh_exception import BadAuthenticationType
+from scp import SCPException
 from jnpr.junos import Device
 from jnpr.junos.utils.ftp import FTP
 from jnpr.junos.utils.scp import SCP
@@ -216,6 +218,7 @@ class SPLITCOPY:
         self.evo = False
         self.junos = False
         self.sha_bin = None
+        self.mute = False
 
     def put(self):
         """ initiates the connection to the remote host
@@ -301,11 +304,12 @@ class SPLITCOPY:
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
                     except KeyboardInterrupt:
+                        self.mute = True
                         self.close()
-                    except Exception as err:
+                    except TransferError:
                         self.close(
                             err_str="an error occurred while copying the files to the "
-                            "remote host, please retry. error was: {}".format(err)
+                            "remote host"
                         )
                     finally:
                         loop.close()
@@ -411,7 +415,7 @@ class SPLITCOPY:
 
                 # add chunk names to a list
                 remote_files = self.start_shell.run(
-                    "ls -1 /var/tmp/splitcopy_{}/".format(self.file_name)
+                    "ls -1 {}/".format(self.remote_tmpdir)
                 )
                 if not self.start_shell.last_ok:
                     self.close(err_str="couldn't get list of files from host")
@@ -447,11 +451,12 @@ class SPLITCOPY:
                     try:
                         loop.run_until_complete(asyncio.gather(*self.tasks))
                     except KeyboardInterrupt:
+                        self.mute = True
                         self.close()
-                    except:
+                    except TransferError:
                         self.close(
                             err_str="an error occurred while copying the files from "
-                            "the remote host, please retry"
+                            "the remote host"
                         )
                     finally:
                         loop.close()
@@ -617,8 +622,8 @@ class SPLITCOPY:
         """
         print("joining files...")
         cmd_out = self.start_shell.run(
-            "cat {}/splitcopy_{}/* > {}/{}".format(
-                self.dest_dir, self.file_name, self.dest_dir, self.file_name
+            "cat {}/* > {}/{}".format(
+                self.remote_tmpdir, self.dest_dir, self.file_name
             ),
             timeout=600,
         )
@@ -898,10 +903,15 @@ class SPLITCOPY:
         Raises:
             None
         """
+        ts = time.strftime("%Y%m%H%M%S")
         if self.get_op:
-            self.remote_tmpdir = "/var/tmp/splitcopy_{}".format(self.file_name)
+            self.remote_tmpdir = "/var/tmp/splitcopy_{}.{}".format(self.file_name, ts)
         else:
-            self.remote_tmpdir = "{}/splitcopy_{}".format(self.dest_dir, self.file_name)
+            self.remote_tmpdir = "{}/splitcopy_{}.{}".format(
+                self.dest_dir,
+                self.file_name,
+                ts,
+            )
         cmd_out = self.start_shell.run("mkdir -p {}".format(self.remote_tmpdir))
         if not self.start_shell.last_ok:
             self.rm_remote_tmp = False
@@ -969,7 +979,7 @@ class SPLITCOPY:
             self.rm_remote_tmp = False
             self.close(err_str="failed to determine remote disk space available")
         df_num = len(df_tuple[1].split("\n")) - 2
-        if re.match(r'^ ', df_tuple[1].split("\n")[df_num]):
+        if re.match(r"^ ", df_tuple[1].split("\n")[df_num]):
             split_num = 2
         else:
             split_num = 3
@@ -1017,15 +1027,17 @@ class SPLITCOPY:
                     with FTP(self.dev, **kwargs) as ftp_proto:
                         if ftp_proto.put(
                             sfile,
-                            "{}/splitcopy_{}/".format(self.dest_dir, self.file_name),
+                            "{}/".format(self.remote_tmpdir),
                         ):
                             retry = 0
                             success = True
                         else:
-                            print("retrying file {}".format(sfile))
+                            if not self.mute:
+                                print("retrying file {}".format(sfile))
                             retry -= 1
                 except Exception as err:
-                    print("retrying file {} due to error {}".format(sfile, err))
+                    if not self.mute:
+                        print("retrying file {} due to error: {}".format(sfile, err))
                     retry -= 1
         else:
             while retry:
@@ -1033,14 +1045,34 @@ class SPLITCOPY:
                     with SCP(self.dev, **kwargs) as scp_proto:
                         scp_proto.put(
                             sfile,
-                            "{}/splitcopy_{}/".format(self.dest_dir, self.file_name),
+                            "{}/".format(self.remote_tmpdir),
                         )
                         retry = 0
                         success = True
-                except:
-                    print("retrying file {}".format(sfile))
+                except SCPException as err:
+                    err = str(err).split(":")[-1].rstrip().lstrip()
+                    if not self.mute:
+                        print("retrying file {} due to SCP error: {}".format(sfile, err))
                     retry -= 1
+                except IOError:
+                    if not self.mute:
+                        print("retrying file {} due to IOError".format(sfile))
+                    retry -= 1
+                except OSError:
+                    if not self.mute:
+                        print("retrying file {} due to OSError".format(sfile))
+                    retry -= 1
+                except SSHException as err:
+                    if not self.mute:
+                        print("retrying file {} due to SSH error: {}".format(sfile, err))
+                    retry -= 1
+                except Exception as err:
+                    if not self.mute:
+                        print("retrying file {} due to error: {}".format(sfile, err))
+                    retry -= 1
+
         if not success:
+            self.mute = True
             raise TransferError
 
     def get_files(self, sfile, **kwargs):
@@ -1061,31 +1093,52 @@ class SPLITCOPY:
                 try:
                     with FTP(self.dev, **kwargs) as ftp_proto:
                         if ftp_proto.get(
-                            "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
+                            "{}/{}".format(self.remote_tmpdir, sfile),
                             local_path="{}/{}".format(self.local_tmpdir, sfile),
                         ):
                             retry = 0
                             success = True
                         else:
-                            print("retrying file {}".format(sfile))
+                            if not self.mute:
+                                print("retrying file {}".format(sfile))
                             retry -= 1
                 except Exception as err:
-                    print("retrying file {} due to error {}".format(sfile, err))
+                    if not self.mute:
+                        print("retrying file {} due to error: {}".format(sfile, err))
                     retry -= 1
         else:
             while retry:
                 try:
                     with SCP(self.dev, **kwargs) as scp_proto:
                         scp_proto.get(
-                            "/var/tmp/splitcopy_{}/{}".format(self.file_name, sfile),
+                            "{}/{}".format(self.remote_tmpdir, sfile),
                             local_path="{}/{}".format(self.local_tmpdir, sfile),
                         )
                         retry = 0
                         success = True
+                except SCPException as err:
+                    err = str(err).split(":")[-1].rstrip().lstrip()
+                    if not self.mute:
+                        print("retrying file {} due to SCP error: {}".format(sfile, err))
+                    retry -= 1
+                except IOError:
+                    if not self.mute:
+                        print("retrying file {} due to IOError".format(sfile))
+                    retry -= 1
+                except OSError:
+                    if not self.mute:
+                        print("retrying file {} due to OSError".format(sfile))
+                    retry -= 1
+                except SSHException as err:
+                    if not self.mute:
+                        print("retrying file {} due to SSH error: {}".format(sfile, err))
+                    retry -= 1
                 except Exception as err:
-                    print("retrying file {} due to error {}".format(sfile, err))
+                    if not self.mute:
+                        print("retrying file {} due to error: {}".format(sfile, err))
                     retry -= 1
         if not success:
+            self.mute = True
             raise TransferError
 
     @contextmanager
@@ -1226,19 +1279,18 @@ class SPLITCOPY:
         if not silent:
             print("deleting remote tmp directory...")
         self.start_shell.run(
-            "rm -rf {}/splitcopy_{}".format(self.dest_dir, self.file_name), timeout=10
+            "rm -rf {}".format(self.remote_tmpdir), timeout=30
         )
         if not self.start_shell.last_ok and not silent:
             print(
-                "unable to delete the tmp directory {}/splitcopy_{} on remote host, "
-                "delete it manually".format(self.dest_dir, self.file_name)
+                "unable to delete the tmp directory {} on remote host, "
+                "delete it manually".format(self.remote_tmpdir)
             )
 
 
 class TransferError(Exception):
     """ custom exception to indicate problem with file transfer
     """
-
     pass
 
 
