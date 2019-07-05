@@ -146,26 +146,34 @@ If using 3.6+ it will allow 5 simultaneous transfers per cpu
 
 Using SCP method will generate the following processes on the remote host:
 - for mgmt session: 1x sshd, 1x cli, 1x mgd, 1x csh
-- for transfers:  depends on Python version, number of cpus (see above) and Junos FreeBSD version (see below)
+- for transfers:  depends on Python version, number of cpus (see above), OpenSSH and Junos FreeBSD version (see below)
 
-In FreeBSD 10 based Junos each scp transfer creates 2 user owned processes and 1 root owned process: 
+In FreeBSD 11 based Junos each scp transfer creates 2 user owned processes: 
 ```
-root 28626   0.0  0.0   63248   5724  -  Ss   11:59AM     0:00.11 sshd: lab@notty (sshd)
+lab 30366   0.0  0.0  475056   7688  -  Ss   10:39      0:00.03 cli -c scp -t /var/tmp/
+lab 30367   0.0  0.0   61324   4860  -  S    10:39      0:00.01 scp -t /var/tmp/
+```
+In FreeBSD 10 based Junos each scp transfer creates 2 user owned processes
+```
 lab  28639   0.0  0.0  734108   4004  -  Is   12:00PM     0:00.01 cli -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/
 lab  28640   0.0  0.0   24768   3516  -  S    12:00PM     0:00.01 scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/
 ```
-In FreeBSD 6 based Junos each scp transfer creates 3 user owned processes:
+In FreeBSD 6 based Junos each scp transfer creates 3 user owned processes: 
 ```
 lab  78625  0.0  0.1  2984  2144  ??  Ss    5:29AM   0:00.01 cli -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
 lab  78626  0.0  0.0  2252  1556  ??  S     5:29AM   0:00.00 sh -c scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
 lab  78627  0.0  0.1  3500  1908  ??  S     5:29AM   0:00.01 scp -t /var/tmp/splitcopy_jinstall-11.4R5.5-domestic-signed.tgz/  
 ```
-In theory, this could result in the per-user maxproc limit of 64 being exceeded:
+In addition, if OpenSSH version is >= 7.4, an additional user owned process is created:
+```
+lab  2287  2.4  0.1 11912  2348  ??  S     3:49AM   0:00.15 sshd: lab@notty (sshd)
+```
+This could result in the per-user maxproc limit of 64 being exceeded:
 ```
 May  2 04:46:59   /kernel: maxproc limit exceeded by uid 2001, please see tuning(7) and login.conf(5).
 ```
-The script modulates the number of chunks to match the maximum number of simultaneous transfers possible (based on Python version, number of cpus and Junos FreeBSD version).  
-The maximum number of user owned processes that could be created is <= 44
+To mitigate this, the script modulates the number of chunks to match the maximum number of simultaneous transfers possible (based on Python, OpenSSH, Junos FreeBSD versions and the number of cpu's).  
+The maximum number of user owned processes that could be created is <= 45
 
 
 

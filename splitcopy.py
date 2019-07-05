@@ -104,13 +104,6 @@ def main():
         file_name = os.path.basename(file_path)
         file_size = os.path.getsize(file_path)
 
-    if not args.pwd:
-        password = getpass.getpass(prompt="Password: ", stream=None)
-    else:
-        password = args.pwd[0]
-    start_time = datetime.datetime.now()
-
-    print("checking remote port(s) are open...")
     try:
         port_check(host, 22)
     except ConnectionRefusedError:
@@ -129,6 +122,12 @@ def main():
         raise SystemExit(
             "failed to connect to port 22 on remote host. error was {}".format(err)
         )
+
+    if not args.pwd:
+        password = getpass.getpass(prompt="Password: ", stream=None)
+    else:
+        password = args.pwd[0]
+    start_time = datetime.datetime.now()
 
     if args.scp:
         copy_proto = "scp"
@@ -217,6 +216,8 @@ class SPLITCOPY:
         self.host_os = None
         self.evo = False
         self.junos = False
+        self.bsd_version = 0.0
+        self.sshd_version = 0.0
         self.sha_bin = None
         self.mute = False
 
@@ -515,12 +516,13 @@ class SPLITCOPY:
         host_os = self.start_shell.run("uname", timeout=30)
         if not self.start_shell.last_ok:
             self.rm_remote_tmp = False
-            self.close(err_str="failed to determine remote host os")
+            err = "failed to determine remote host os, it must be *nix based"
+            self.close(err_str=err)
         self.host_os = host_os[1].split("\n")[1].rstrip()
         if self.host_os == "Linux" and self.evo_os():
             self.evo = True
-        elif self.junos_os():
-            self.junos = True
+        else:
+            self.junos, self.bsd_version, self.sshd_version = self.junos_os()
 
     def evo_os(self):
         """ determines if host is EVO
@@ -539,12 +541,64 @@ class SPLITCOPY:
         Args:
             self - class variables inherited from __init__
         Returns:
-            bool
+            junos(bool) - whether remote host is junos or not
+            version(int) - bsd major version
+            sshd_ver(float) - openssh version
         Raises:
             None
         """
-        self.start_shell.run("uname -i | egrep 'JUNIPER|JNPR'", timeout=30)
-        return self.start_shell.last_ok
+        junos = False
+        version = None
+        sshd_ver = None
+        uname = self.start_shell.run("uname -i", timeout=30)
+        if not self.start_shell.last_ok:
+            self.rm_remote_tmp = False
+            self.close(err_str="failed to determine remote host os")
+        uname = uname[1].split("\n")[1]
+        if re.match(r"JUNIPER", uname):
+            junos = True
+            version = 6.0
+            sshd_ver = self.which_sshd()
+        elif re.match(r"JNPR", uname):
+            junos = True
+            version = self.which_bsd()
+            sshd_ver = self.which_sshd()
+        return junos, version, sshd_ver
+
+    def which_bsd(self):
+        """ determines the BSD version of JUNOS
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            version(float)
+        Raises:
+            None
+        """
+        uname = self.start_shell.run("uname -r", timeout=30)
+        if not self.start_shell.last_ok:
+            self.rm_remote_tmp = False
+            self.close(err_str="failed to determine remote bsd version")
+        uname = uname[1].split("\n")[1]
+        version = float(uname.split("-")[1])
+        return version
+
+    def which_sshd(self):
+        """ determines the OpenSSH daemon version
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            version(float)
+        Raises:
+            None
+        """
+        output = self.start_shell.run("sshd -v", timeout=30)
+        if not re.search(r"OpenSSH_", output[1]):
+            self.rm_remote_tmp = False
+            self.close(err_str="failed to determine remote openssh version")
+        output = output[1].split("\n")[2]
+        version = re.sub(r"OpenSSH_", "", output)
+        version = float(version[0:3])
+        return version
 
     def req_binaries(self):
         """ ensures required binaries exist on remote host
@@ -712,7 +766,7 @@ class SPLITCOPY:
 
     def file_split_size(self):
         """ The chunk size depends on the python version, cpu count,
-            the protocol used to copy and the FreeBSD version
+            the protocol used to copy, FreeBSD and OpenSSH version
         Args:
             self - class variables inherited from __init__
         Returns:
@@ -720,9 +774,8 @@ class SPLITCOPY:
         Raises:
             None
         """
-        verstring = None
         if sys.version_info < (3, 6):
-            # 3.4 and 3.5 will only do 5 simultaneous transfers
+            # if using python < 3.6 the maximum number of simultaneous transfers is 5.
             self.split_size = int(divmod(self.file_size, 5)[0])
             return
 
@@ -732,33 +785,37 @@ class SPLITCOPY:
         except NotImplementedError:
             pass
 
-        # ftp creates 1 user process per chunk
-        # scp to FreeBSD 6 based junos creates 3 user processes per chunk
-        # scp to FreeBSD 10+ based junos creates 2 user processes per chunk
-        # each uid can have max of 64 processes
-        # values here will leave min 24 processes headroom
-
-        if cpu_count == 1:
-            ftp_max, scp_bsd10_max, scp_bsd6_max = 5, 5, 5
-        elif cpu_count == 2:
-            ftp_max, scp_bsd10_max, scp_bsd6_max = 10, 10, 10
-        elif cpu_count == 4:
-            ftp_max, scp_bsd10_max, scp_bsd6_max = 20, 20, 13
+        # python 3.6+ allows 5 simultaneous transfers per cpu
+        if cpu_count <= 4:
+            ftp_max, scp_max = cpu_count * 5, cpu_count * 5
         else:
-            ftp_max, scp_bsd10_max, scp_bsd6_max = 40, 20, 13
+            # ftp creates 1 user process per chunk
+            # scp to FreeBSD 6 based junos creates 3 user processes per chunk
+            # scp to FreeBSD 10+ based junos creates 2 user processes per chunk
+            # +1 user process if openssh version is >= 7.4
+            # each uid can have max of 64 processes
+            # values here will leave min 19 processes headroom
+            max_pids = 45
+            ftp_max = max_pids
+            if self.sshd_version >= 7.4 and self.bsd_version == 6.0:
+                scp_pids = 4
+            elif self.sshd_version >= 7.4 and self.bsd_version >= 11.0:
+                scp_pids = 3
+            elif self.bsd_version == 6.0:
+                scp_pids = 3
+            elif self.bsd_version >= 10.0:
+                scp_pids = 2
+            elif self.evo:
+                scp_pids = 3
+            else:
+                # be conservative
+                scp_pids = 4
+            scp_max = round(max_pids / scp_pids)
 
         if self.copy_proto == "ftp":
             self.split_size = int(divmod(self.file_size, ftp_max)[0])
-            return
-
-        ver = self.start_shell.run("uname -i")
-        if self.start_shell.last_ok:
-            verstring = ver[1].split("\n")[1].rstrip()
-
-        if re.match(r"JNPR", verstring):
-            self.split_size = int(divmod(self.file_size, scp_bsd10_max)[0])
         else:
-            self.split_size = int(divmod(self.file_size, scp_bsd6_max)[0])
+            self.split_size = int(divmod(self.file_size, scp_max)[0])
 
     def split_file_local(self):
         """ splits file into chunks of size already determined in file_split_size()
@@ -908,9 +965,7 @@ class SPLITCOPY:
             self.remote_tmpdir = "/var/tmp/splitcopy_{}.{}".format(self.file_name, ts)
         else:
             self.remote_tmpdir = "{}/splitcopy_{}.{}".format(
-                self.dest_dir,
-                self.file_name,
-                ts,
+                self.dest_dir, self.file_name, ts
             )
         cmd_out = self.start_shell.run("mkdir -p {}".format(self.remote_tmpdir))
         if not self.start_shell.last_ok:
@@ -968,6 +1023,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        avail_blocks = 0
         print("checking remote storage...")
         if get:
             multiplier = 1
@@ -1025,10 +1081,7 @@ class SPLITCOPY:
             while retry:
                 try:
                     with FTP(self.dev, **kwargs) as ftp_proto:
-                        if ftp_proto.put(
-                            sfile,
-                            "{}/".format(self.remote_tmpdir),
-                        ):
+                        if ftp_proto.put(sfile, "{}/".format(self.remote_tmpdir)):
                             retry = 0
                             success = True
                         else:
@@ -1043,16 +1096,15 @@ class SPLITCOPY:
             while retry:
                 try:
                     with SCP(self.dev, **kwargs) as scp_proto:
-                        scp_proto.put(
-                            sfile,
-                            "{}/".format(self.remote_tmpdir),
-                        )
+                        scp_proto.put(sfile, "{}/".format(self.remote_tmpdir))
                         retry = 0
                         success = True
                 except SCPException as err:
                     err = str(err).split(":")[-1].rstrip().lstrip()
                     if not self.mute:
-                        print("retrying file {} due to SCP error: {}".format(sfile, err))
+                        print(
+                            "retrying file {} due to SCP error: {}".format(sfile, err)
+                        )
                     retry -= 1
                 except IOError:
                     if not self.mute:
@@ -1064,7 +1116,9 @@ class SPLITCOPY:
                     retry -= 1
                 except SSHException as err:
                     if not self.mute:
-                        print("retrying file {} due to SSH error: {}".format(sfile, err))
+                        print(
+                            "retrying file {} due to SSH error: {}".format(sfile, err)
+                        )
                     retry -= 1
                 except Exception as err:
                     if not self.mute:
@@ -1119,7 +1173,9 @@ class SPLITCOPY:
                 except SCPException as err:
                     err = str(err).split(":")[-1].rstrip().lstrip()
                     if not self.mute:
-                        print("retrying file {} due to SCP error: {}".format(sfile, err))
+                        print(
+                            "retrying file {} due to SCP error: {}".format(sfile, err)
+                        )
                     retry -= 1
                 except IOError:
                     if not self.mute:
@@ -1131,7 +1187,9 @@ class SPLITCOPY:
                     retry -= 1
                 except SSHException as err:
                     if not self.mute:
-                        print("retrying file {} due to SSH error: {}".format(sfile, err))
+                        print(
+                            "retrying file {} due to SSH error: {}".format(sfile, err)
+                        )
                     retry -= 1
                 except Exception as err:
                     if not self.mute:
@@ -1207,6 +1265,7 @@ class SPLITCOPY:
 
         # check for presence of rate/connection limits
         cli_config = ""
+        conf_line = ""
         for stanza in config_stanzas:
             config = self.start_shell.run(
                 'cli -c "show configuration {} | display set | no-more"'.format(stanza)
@@ -1278,9 +1337,7 @@ class SPLITCOPY:
         """
         if not silent:
             print("deleting remote tmp directory...")
-        self.start_shell.run(
-            "rm -rf {}".format(self.remote_tmpdir), timeout=30
-        )
+        self.start_shell.run("rm -rf {}".format(self.remote_tmpdir), timeout=30)
         if not self.start_shell.last_ok and not silent:
             print(
                 "unable to delete the tmp directory {} on remote host, "
@@ -1291,6 +1348,7 @@ class SPLITCOPY:
 class TransferError(Exception):
     """ custom exception to indicate problem with file transfer
     """
+
     pass
 
 
