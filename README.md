@@ -36,6 +36,7 @@ The script will deactivate these limits so it can proceed, then activate them ag
 `--dst`    Optional, directory to put file. The default is /var/tmp/  
 `--scp`    Optional, use scp instead of ftp to transfer files  
 `--get`    Optional, copy from remote to local host  
+`--log`    Optional, enables additional logging, specify a logging level as argument  
 
 # INSTALLATION
 
