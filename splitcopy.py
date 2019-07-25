@@ -18,6 +18,7 @@ import functools
 import getpass
 import glob
 import hashlib
+import logging
 import multiprocessing
 import os
 import re
@@ -64,12 +65,29 @@ def main():
     parser.add_argument(
         "--get", action="store_const", const="get", help="get file from remote host"
     )
+    parser.add_argument("--log", nargs=1, help="log level, eg DEBUG")
     args = parser.parse_args()
 
     if not args.userhost:
         parser.error(
             "must specify a username and remote host to connect to. e.g. user@host"
         )
+
+    if not args.log:
+        loglevel = "ERROR"
+    else:
+        loglevel = args.log[0]
+
+    logger = logging.getLogger(__name__)
+    numeric_level = getattr(logging, loglevel.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError("Invalid log level: %s" % loglevel)
+    logger.setLevel(numeric_level)
+    handler = logging.StreamHandler()
+    handler.setLevel(numeric_level)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
     try:
         user = args.userhost.split("@")[0]
@@ -80,7 +98,7 @@ def main():
     get = args.get
 
     if args.dst:
-        dest_dir = args.dst[0]
+        dest_dir = args.dst[0].rstrip("/")
     else:
         dest_dir = "/var/tmp"
 
@@ -103,6 +121,7 @@ def main():
             )
         file_name = os.path.basename(file_path)
         file_size = os.path.getsize(file_path)
+        logger.debug("src file size is {}".format(file_size))
 
     try:
         port_check(host, 22)
@@ -142,7 +161,16 @@ def main():
             print("using SCP for file transfer")
 
     splitcopy = SPLITCOPY(
-        host, user, password, dest_dir, file_name, file_path, file_size, copy_proto, get
+        host,
+        user,
+        password,
+        dest_dir,
+        file_name,
+        file_path,
+        file_size,
+        copy_proto,
+        get,
+        logger,
     )
 
     # connect to host
@@ -189,6 +217,7 @@ class SPLITCOPY:
         file_size,
         copy_proto,
         get,
+        logger,
     ):
         """ Initialise the SPLITCOPY class
         """
@@ -205,6 +234,7 @@ class SPLITCOPY:
         self.config_rollback = True
         self.hard_close = False
         self.get_op = get
+        self.logger = logger
         self.dev = None
         self.start_shell = None
         self.local_sha1 = None
@@ -256,7 +286,7 @@ class SPLITCOPY:
                 self.storage_check()
 
                 # get/create sha1 for local file
-                self.sha1_check()
+                self.local_sha1_put()
 
                 # determine optimal size for chunks
                 self.file_split_size()
@@ -270,6 +300,7 @@ class SPLITCOPY:
                     for sfile in os.listdir("."):
                         if fnmatch.fnmatch(sfile, "{}*".format(self.file_name)):
                             sfiles.append(sfile)
+                    self.logger.debug("# of chunks = {}".format(len(sfiles)))
 
                     # begin pre transfer checks, check if remote directory exists
                     self.start_shell.run("test -d {}".format(self.dest_dir))
@@ -425,6 +456,7 @@ class SPLITCOPY:
                 for sfile in remote_files:
                     if fnmatch.fnmatch(sfile, "{}*".format(self.file_name)):
                         sfiles.append(sfile)
+                self.logger.debug("# of chunks = {}".format(len(sfiles)))
 
                 # begin connection/rate limit check and transfer process
                 if self.junos or self.evo:
@@ -477,7 +509,7 @@ class SPLITCOPY:
                     self.limits_rollback()
 
                 # generate a sha1 for the combined file, compare to sha1 of src
-                self.sha1_check_local()
+                self.local_sha1_get()
 
         except TimeoutError:
             raise SystemExit("ssh connection attempt timed out")
@@ -513,6 +545,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering which_os()")
         host_os = self.start_shell.run("uname", timeout=30)
         if not self.start_shell.last_ok:
             self.rm_remote_tmp = False
@@ -522,7 +555,12 @@ class SPLITCOPY:
         if self.host_os == "Linux" and self.evo_os():
             self.evo = True
         else:
-            self.junos, self.bsd_version, self.sshd_version = self.junos_os()
+            self.junos_os()
+        self.logger.debug(
+            "evo = {}, junos = {}, bsd_version = {}, sshd_version = {}".format(
+                self.evo, self.junos, self.bsd_version, self.sshd_version
+            )
+        )
 
     def evo_os(self):
         """ determines if host is EVO
@@ -533,6 +571,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering evo_os()")
         self.start_shell.run("test -e /usr/sbin/evo-pfemand", timeout=30)
         return self.start_shell.last_ok
 
@@ -541,64 +580,61 @@ class SPLITCOPY:
         Args:
             self - class variables inherited from __init__
         Returns:
-            junos(bool) - whether remote host is junos or not
-            version(int) - bsd major version
-            sshd_ver(float) - openssh version
+            None
         Raises:
             None
         """
-        junos = False
-        version = None
-        sshd_ver = None
+        self.logger.debug("entering junos_os()")
         uname = self.start_shell.run("uname -i", timeout=30)
         if not self.start_shell.last_ok:
             self.rm_remote_tmp = False
             self.close(err_str="failed to determine remote host os")
         uname = uname[1].split("\n")[1]
         if re.match(r"JUNIPER", uname):
-            junos = True
-            version = 6.0
-            sshd_ver = self.which_sshd()
+            self.junos = True
+            self.bsd_version = 6.0
+            self.which_sshd()
         elif re.match(r"JNPR", uname):
-            junos = True
-            version = self.which_bsd()
-            sshd_ver = self.which_sshd()
-        return junos, version, sshd_ver
+            self.junos = True
+            self.which_bsd()
+            self.which_sshd()
+        else:
+            self.which_sshd()
 
     def which_bsd(self):
         """ determines the BSD version of JUNOS
         Args:
             self - class variables inherited from __init__
         Returns:
-            version(float)
+            None
         Raises:
             None
         """
+        self.logger.debug("entering which_bsd()")
         uname = self.start_shell.run("uname -r", timeout=30)
         if not self.start_shell.last_ok:
             self.rm_remote_tmp = False
             self.close(err_str="failed to determine remote bsd version")
         uname = uname[1].split("\n")[1]
-        version = float(uname.split("-")[1])
-        return version
+        self.bsd_version = float(uname.split("-")[1])
 
     def which_sshd(self):
         """ determines the OpenSSH daemon version
         Args:
             self - class variables inherited from __init__
         Returns:
-            version(float)
+            None
         Raises:
             None
         """
+        self.logger.debug("entering which_sshd()")
         output = self.start_shell.run("sshd -v", timeout=30)
         if not re.search(r"OpenSSH_", output[1]):
             self.rm_remote_tmp = False
             self.close(err_str="failed to determine remote openssh version")
         output = output[1].split("\n")[2]
         version = re.sub(r"OpenSSH_", "", output)
-        version = float(version[0:3])
-        return version
+        self.sshd_version = float(version[0:3])
 
     def req_binaries(self):
         """ ensures required binaries exist on remote host
@@ -609,6 +645,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering req_binaries()")
         sha1_bins = ["sha1sum", "shasum", "sha1"]
         for req_bin in sha1_bins:
             if self.start_shell.run("which {}".format(req_bin))[0]:
@@ -674,6 +711,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering join_files_remote()")
         print("joining files...")
         cmd_out = self.start_shell.run(
             "cat {}/* > {}/{}".format(
@@ -698,6 +736,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering join_files_local()")
         print("joining files...")
         buf_size = 131072
         src_files = glob.glob(self.local_tmpdir + "/" + self.file_name + "*")
@@ -723,6 +762,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering remote_sha1_put()")
         print("generating remote sha1...")
         self.start_shell.run("ls {}/{}".format(self.dest_dir, self.file_name))
         if not self.start_shell.last_ok:
@@ -747,6 +787,7 @@ class SPLITCOPY:
             remote_sha1 = sha1_tuple[1].split("\n")[1].split()[0].rstrip()
         else:
             remote_sha1 = sha1_tuple[1].split("\n")[1].split()[3].rstrip()
+        self.logger.debug("remote sha1 = {}".format(remote_sha1))
         if self.local_sha1 == remote_sha1:
             print(
                 "local and remote sha1 match\nfile has been "
@@ -774,6 +815,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering file_split_size()")
         if sys.version_info < (3, 6):
             # if using python < 3.6 the maximum number of simultaneous transfers is 5.
             self.split_size = int(divmod(self.file_size, 5)[0])
@@ -816,6 +858,7 @@ class SPLITCOPY:
             self.split_size = int(divmod(self.file_size, ftp_max)[0])
         else:
             self.split_size = int(divmod(self.file_size, scp_max)[0])
+        self.logger.debug("file split size = {}".format(self.split_size))
 
     def split_file_local(self):
         """ splits file into chunks of size already determined in file_split_size()
@@ -827,6 +870,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering split_file_local()")
         print("splitting file...")
         try:
             buf_size = 1024
@@ -869,6 +913,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering split_file_remote()")
         total_blocks = int(self.file_size / 1024)
         block_size = int(self.split_size / 1024)
         cmd = (
@@ -893,7 +938,7 @@ class SPLITCOPY:
             err_str = "couldn't split the remote file"
             self.close(err_str)
 
-    def sha1_check_local(self):
+    def local_sha1_get(self):
         """ generates a sha1 for the combined file on the local host
         Args:
             self - class variables inherited from __init__
@@ -902,6 +947,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering local_sha1_get()")
         print("generating local sha1...")
         buf_size = 131072
         sha1 = hashlib.sha1()
@@ -912,6 +958,7 @@ class SPLITCOPY:
                 sha1.update(data)
                 data = dst.read(buf_size)
         local_sha1 = sha1.hexdigest()
+        self.logger.debug("local sha1 = {}".format(local_sha1))
         if local_sha1 == self.remote_sha1:
             print(
                 "local and remote sha1 match\nfile has been "
@@ -927,7 +974,7 @@ class SPLITCOPY:
             self.config_rollback = False
             self.close(err_str=err)
 
-    def sha1_check(self):
+    def local_sha1_put(self):
         """ checks whether a sha1 already exists for the file
             if not creates one
         Args:
@@ -937,19 +984,21 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering local_sha1_put()")
         if os.path.isfile(self.file_path + ".sha1"):
             sha1file = open(self.file_path + ".sha1", "r")
             self.local_sha1 = sha1file.read().rstrip()
         else:
             print("sha1 not found, generating sha1...")
-        buf_size = 131072
-        sha1 = hashlib.sha1()
-        with open(self.file_path, "rb") as original_file:
-            data = original_file.read(buf_size)
-            while data:
-                sha1.update(data)
+            buf_size = 131072
+            sha1 = hashlib.sha1()
+            with open(self.file_path, "rb") as original_file:
                 data = original_file.read(buf_size)
-        self.local_sha1 = sha1.hexdigest()
+                while data:
+                    sha1.update(data)
+                    data = original_file.read(buf_size)
+            self.local_sha1 = sha1.hexdigest()
+        self.logger.debug("local sha1 = {}".format(self.local_sha1))
 
     def mkdir_remote(self):
         """ creates a tmp directory on the remote host
@@ -960,6 +1009,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering mkdir_remote()")
         ts = time.strftime("%y%m%d%H%M%S")
         if self.get_op:
             self.remote_tmpdir = "/var/tmp/splitcopy_{}.{}".format(self.file_name, ts)
@@ -985,18 +1035,27 @@ class SPLITCOPY:
         Raises:
             None
         """
-        print("generating remote sha1...")
+        self.logger.debug("entering remote_sha1_get()")
         remote_sha1 = self.start_shell.run(
-            "{} {}".format(self.sha_bin, self.file_path), timeout=300
+            "cat {}.sha1".format(self.file_path)
         )
-        if not self.start_shell.last_ok:
-            self.rm_remote_tmp = False
-            self.close(err_str="failed to generate remote sha1")
-
-        if self.sha_bin == "sha1sum" or self.sha_bin == "shasum":
-            self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[0].rstrip()
+        if self.start_shell.last_ok:
+            self.logger.debug("sha1 file found")
+            self.remote_sha1 = remote_sha1[1].split("\n")[1].rstrip()
         else:
-            self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[3].rstrip()
+            print("generating remote sha1...")
+            remote_sha1 = self.start_shell.run(
+                "{} {}".format(self.sha_bin, self.file_path), timeout=300
+            )
+            if not self.start_shell.last_ok:
+                self.rm_remote_tmp = False
+                self.close(err_str="failed to generate remote sha1")
+
+            if self.sha_bin == "sha1sum" or self.sha_bin == "shasum":
+                self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[0].rstrip()
+            else:
+                self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[3].rstrip()
+        self.logger.debug("remote sha1 = {}".format(self.remote_sha1))
 
     def remote_filesize(self):
         """  determines the remote file size in bytes
@@ -1007,12 +1066,14 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering remote_filesize()")
         file_size = self.start_shell.run("ls -l {}".format(self.file_path))
         if self.start_shell.last_ok:
             self.file_size = int(file_size[1].split("\n")[1].split()[4])
         else:
             self.rm_remote_tmp = False
             self.close(err_str="cannot determine remote file size")
+        self.logger.debug("src file size is {}".format(self.file_size))
 
     def storage_check(self, get=False):
         """ checks whether there is enough storage space on remote node
@@ -1023,6 +1084,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering storage_check()")
         avail_blocks = 0
         print("checking remote storage...")
         if get:
@@ -1047,6 +1109,7 @@ class SPLITCOPY:
             self.close(err_str)
 
         avail_bytes = int(avail_blocks) * 1024
+        self.logger.debug("available bytes is {}".format(avail_bytes))
         if self.file_size * multiplier > avail_bytes:
             self.rm_remote_tmp = False
             if get:
@@ -1252,6 +1315,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering limit_check()")
         config_stanzas = ["groups", "system services"]
         if self.copy_proto == "ftp":
             limits = [
@@ -1314,6 +1378,7 @@ class SPLITCOPY:
         Raises:
             None
         """
+        self.logger.debug("entering limits_rollback()")
         rollback_cmds = "".join(self.command_list)
         rollback_cmds = re.sub("deactivate", "activate", rollback_cmds)
         self.start_shell.run('cli -c "edit;{}commit and-quit"'.format(rollback_cmds))
