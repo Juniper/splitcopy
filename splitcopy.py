@@ -837,7 +837,7 @@ class SPLITCOPY:
             # +1 user process if openssh version is >= 7.4
             # each uid can have max of 64 processes
             # values here will leave min 19 processes headroom
-            max_pids = 45
+            max_pids = 39
             ftp_max = max_pids
             if self.sshd_version >= 7.4 and self.bsd_version == 6.0:
                 scp_pids = 4
