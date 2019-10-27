@@ -42,19 +42,19 @@ The script will deactivate these limits so it can proceed, then activate them ag
 
 Installation requires Python >= 3.4 and associated `pip` tool, Python >= 3.6 is recommended due to improvements in asyncio  
 
-    pip install splitcopy
+    python3 -m pip install splitcopy
 
 Installing from Git is also supported (OS must have git installed).
 
     To install the latest MASTER code
-    pip install git+https://github.com/Juniper/splitcopy.git
+    python3 -m pip install git+https://github.com/Juniper/splitcopy.git
     -or-
     To install a specific version, branch, tag, etc.
-    pip install git+https://github.com/Juniper/splitcopy.git@<branch,tag,commit>
+    python3 -m pip install git+https://github.com/Juniper/splitcopy.git@<branch,tag,commit>
 
 Upgrading has the same requirements as installation and has the same format with the addition of --upgrade
 
-    pip install splitcopy --upgrade
+    python3 -m pip install splitcopy --upgrade
 
 
 # Usage Examples 
