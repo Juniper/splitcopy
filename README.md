@@ -30,13 +30,14 @@ The script will deactivate these limits so it can proceed, then activate them ag
 
 ## Arguments
 
-`filepath` Mandatory, path to the src file you want to copy  
-`userhost` Mandatory, username and host to connect to, in format user@host  
-`--pwd`    Optional, password.  
-`--dst`    Optional, directory to put file. The default is /var/tmp/  
-`--scp`    Optional, use scp instead of ftp to transfer files  
-`--get`    Optional, copy from remote to local host  
-`--log`    Optional, enables additional logging, specify a logging level as argument  
+`filepath`   Mandatory, path to the src file you want to copy  
+`userhost`   Mandatory, username and host to connect to, in format user@host  
+`--pwd`      Optional, password.  
+`--dst`      Optional, directory to put file. The default is /var/tmp/  
+`--scp`      Optional, use scp instead of ftp to transfer files  
+`--get`      Optional, copy from remote to local host  
+`--log`      Optional, enables additional logging, specify a logging level as argument  
+`--noverify` Optional, skips sha1 hash comparison of src and dst file  
 
 # INSTALLATION
 

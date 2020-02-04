@@ -63,6 +63,12 @@ def main():
         help="use scp to copy files instead of ftp",
     )
     parser.add_argument(
+        "--noverify",
+        action="store_const",
+        const="noverify",
+        help="skip sha1 hash comparison of src and dst file",
+    )
+    parser.add_argument(
         "--get", action="store_const", const="get", help="get file from remote host"
     )
     parser.add_argument("--log", nargs=1, help="log level, eg DEBUG")
@@ -96,6 +102,7 @@ def main():
         raise SystemExit("please specify user and host in the format user@host")
 
     get = args.get
+    noverify = args.noverify
 
     if args.dst:
         dest_dir = args.dst[0].rstrip("/")
@@ -171,6 +178,7 @@ def main():
         copy_proto,
         get,
         logger,
+        noverify,
     )
 
     # connect to host
@@ -218,6 +226,7 @@ class SPLITCOPY:
         copy_proto,
         get,
         logger,
+        noverify,
     ):
         """ Initialise the SPLITCOPY class
         """
@@ -235,6 +244,7 @@ class SPLITCOPY:
         self.hard_close = False
         self.get_op = get
         self.logger = logger
+        self.noverify = noverify
         self.dev = None
         self.start_shell = None
         self.local_sha1 = None
@@ -285,8 +295,9 @@ class SPLITCOPY:
                 # confirm remote storage is sufficient
                 self.storage_check()
 
-                # get/create sha1 for local file
-                self.local_sha1_put()
+                if not self.noverify:
+                    # get/create sha1 for local file
+                    self.local_sha1_put()
 
                 # determine optimal size for chunks
                 self.file_split_size()
@@ -360,8 +371,15 @@ class SPLITCOPY:
                 if self.command_list:
                     self.limits_rollback()
 
-                # generate a sha1 for the combined file, compare to sha1 of src
-                self.remote_sha1_put()
+                if self.noverify:
+                    print(
+                        "file has been successfully copied to {}:{}/{}".format(
+                            self.host, self.dest_dir, self.file_name
+                        )
+                    )
+                else:
+                    # generate a sha1 for the combined file, compare to sha1 of src
+                    self.remote_sha1_put()
 
         except TimeoutError:
             raise SystemExit("ssh connection attempt timed out")
@@ -433,8 +451,9 @@ class SPLITCOPY:
                 # confirm remote storage is sufficient
                 self.storage_check(get=True)
 
-                # get/create sha1 for remote file
-                self.remote_sha1_get()
+                if not self.noverify:
+                    # get/create sha1 for remote file
+                    self.remote_sha1_get()
 
                 # determine optimal size for chunks
                 self.file_split_size()
@@ -508,8 +527,15 @@ class SPLITCOPY:
                 if self.command_list:
                     self.limits_rollback()
 
-                # generate a sha1 for the combined file, compare to sha1 of src
-                self.local_sha1_get()
+                if self.noverify:
+                    print(
+                        "file has been successfully copied to {}/{}".format(
+                            self.dest_dir, self.file_name
+                        )
+                    )
+                else:
+                    # generate a sha1 for the combined file, compare to sha1 of src
+                    self.local_sha1_get()
 
         except TimeoutError:
             raise SystemExit("ssh connection attempt timed out")
@@ -987,7 +1013,7 @@ class SPLITCOPY:
         self.logger.debug("entering local_sha1_put()")
         if os.path.isfile(self.file_path + ".sha1"):
             sha1file = open(self.file_path + ".sha1", "r")
-            self.local_sha1 = sha1file.read().rstrip()
+            self.local_sha1 = sha1file.read().split()[0].rstrip()
         else:
             print("sha1 not found, generating sha1...")
             buf_size = 131072
@@ -1036,9 +1062,7 @@ class SPLITCOPY:
             None
         """
         self.logger.debug("entering remote_sha1_get()")
-        remote_sha1 = self.start_shell.run(
-            "cat {}.sha1".format(self.file_path)
-        )
+        remote_sha1 = self.start_shell.run("cat {}.sha1".format(self.file_path))
         if self.start_shell.last_ok:
             self.logger.debug("sha1 file found")
             self.remote_sha1 = remote_sha1[1].split("\n")[1].rstrip()
