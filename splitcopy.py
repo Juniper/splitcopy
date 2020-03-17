@@ -275,6 +275,9 @@ class SPLITCOPY:
         try:
             self.dev = Device(host=self.host, user=self.user, passwd=self.password)
             with StartShell(self.dev) as self.start_shell:
+                # ensure session stays up
+                self.start_shell._chan.transport.set_keepalive(60)
+
                 # determine remote host os
                 self.which_os()
 
@@ -420,6 +423,9 @@ class SPLITCOPY:
         try:
             self.dev = Device(host=self.host, user=self.user, passwd=self.password)
             with StartShell(self.dev) as self.start_shell:
+                # ensure session stays up
+                self.start_shell._chan.transport.set_keepalive(60)
+
                 # determine remote host os
                 self.which_os()
 
