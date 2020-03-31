@@ -68,9 +68,7 @@ def main():
         const="noverify",
         help="skip sha1 hash comparison of src and dst file",
     )
-    parser.add_argument(
-        "--get", action="store_const", const="get", help="get file from remote host"
-    )
+    parser.add_argument("--get", action="store_true", help="get file from remote host")
     parser.add_argument("--log", nargs=1, help="log level, eg DEBUG")
     args = parser.parse_args()
 
@@ -125,6 +123,14 @@ def main():
         if not os.path.isfile(file_path):
             raise SystemExit(
                 "source file {} does not exist - cannot proceed".format(file_path)
+            )
+        try:
+            open(file_path, "rb")
+        except PermissionError:
+            raise SystemExit(
+                "source file {} exists but is not readable - cannot proceed".format(
+                    file_path
+                )
             )
         file_name = os.path.basename(file_path)
         file_size = os.path.getsize(file_path)
@@ -296,7 +302,10 @@ class SPLITCOPY:
                 self.remote_cleanup(True)
 
                 # confirm remote storage is sufficient
-                self.storage_check()
+                self.storage_check_remote()
+
+                # confirm local storage is sufficient
+                self.storage_check_local()
 
                 if not self.noverify:
                     # get/create sha1 for local file
@@ -455,7 +464,10 @@ class SPLITCOPY:
                 self.remote_filesize()
 
                 # confirm remote storage is sufficient
-                self.storage_check(get=True)
+                self.storage_check_remote()
+
+                # confirm local storage is sufficient
+                self.storage_check_local()
 
                 if not self.noverify:
                     # get/create sha1 for remote file
@@ -729,7 +741,16 @@ class SPLITCOPY:
         if err_str:
             print(err_str)
         if self.hard_close:
-            shutil.rmtree(self.local_tmpdir)
+            try:
+                shutil.rmtree(self.local_tmpdir)
+            except PermissionError:
+                # windows can throw this error, silence it for now
+                print(
+                    "{} may still exist, please delete manually if so".format(
+                        self.local_tmpdir
+                    )
+                )
+                pass
             raise os._exit(1)
         else:
             raise SystemExit(1)
@@ -1105,7 +1126,7 @@ class SPLITCOPY:
             self.close(err_str="cannot determine remote file size")
         self.logger.debug("src file size is {}".format(self.file_size))
 
-    def storage_check(self, get=False):
+    def storage_check_remote(self):
         """ checks whether there is enough storage space on remote node
         Args:
             self - class variables inherited from __init__
@@ -1114,10 +1135,10 @@ class SPLITCOPY:
         Raises:
             None
         """
-        self.logger.debug("entering storage_check()")
+        self.logger.debug("entering storage_check_remote()")
         avail_blocks = 0
         print("checking remote storage...")
-        if get:
+        if self.get_op:
             multiplier = 1
             df_tuple = self.start_shell.run("df -k /var/tmp/")
         else:
@@ -1139,23 +1160,70 @@ class SPLITCOPY:
             self.close(err_str)
 
         avail_bytes = int(avail_blocks) * 1024
-        self.logger.debug("available bytes is {}".format(avail_bytes))
+        self.logger.debug("remote filesystem available bytes is {}".format(avail_bytes))
         if self.file_size * multiplier > avail_bytes:
-            self.rm_remote_tmp = False
-            if get:
+            if self.get_op:
                 err_str = (
-                    "not enough space on remote host. Available space must be "
-                    "1x the original file size because it has to store the file "
-                    "chunks"
+                    "not enough storage on remote host in /var/tmp.\nAvailable bytes "
+                    "({}) must be > the original file size ({}) because it has to "
+                    "store the file chunks".format(avail_bytes, self.file_size)
                 )
             else:
                 err_str = (
-                    "not enough space on remote host. Available space "
-                    "must be 2x the original file size because it has to "
+                    "not enough storage on remote host in {}.\nAvailable bytes ({}) "
+                    "must be 2x the original file size ({}) because it has to "
                     "store the file chunks and the whole file at the "
-                    "same time"
+                    "same time".format(self.dest_dir, avail_bytes, self.file_size)
                 )
+            self.rm_remote_tmp = False
             self.close(err_str)
+
+    def storage_check_local(self):
+        """ checks whether there is enough storage space on local node
+        Args:
+            self - class variables inherited from __init__
+        Returns:
+            None
+        Raises:
+            None
+        """
+        self.logger.debug("entering storage_check_local()")
+        print("checking local storage...")
+        local_tmpdir = tempfile.gettempdir()
+        avail_bytes = shutil.disk_usage(local_tmpdir)[2]
+        self.logger.debug(
+            "local filesystem {} available bytes is {}".format(
+                local_tmpdir, avail_bytes
+            )
+        )
+        if self.file_size > avail_bytes:
+            err_str = (
+                "not enough storage on local host in temp dir {}.\nAvailable bytes "
+                "({}) must be > the original file size ({}) because it has to "
+                "store the file chunks".format(
+                    local_tmpdir, avail_bytes, self.file_size
+                )
+            )
+            self.rm_remote_tmp = False
+            self.close(err_str)
+
+        if self.get_op:
+            avail_bytes = shutil.disk_usage(self.dest_dir)[2]
+            self.logger.debug(
+                "local filesystem {} available bytes is {}".format(
+                    self.dest_dir, avail_bytes
+                )
+            )
+            if self.file_size > avail_bytes:
+                err_str = (
+                    "not enough storage on local host in {}.\nAvailable bytes ({}) "
+                    "must be > the original file size ({}) because it has to "
+                    "recombine the file chunks into a whole file".format(
+                        self.dest_dir, avail_bytes, self.file_size
+                    )
+                )
+                self.rm_remote_tmp = False
+                self.close(err_str)
 
     def put_files(self, sfile, **kwargs):
         """ copies files to remote host via ftp or scp
