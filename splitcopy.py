@@ -49,6 +49,11 @@ warnings.simplefilter("ignore", utils.CryptographyDeprecationWarning)
 def main():
     """ body of script
     """
+    def handlesigintssh(sigint, stack):
+        raise SystemExit
+
+    signal.signal(signal.SIGINT, handlesigintssh)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("filepath", help="Path to the file you want to copy")
     parser.add_argument(
@@ -106,10 +111,7 @@ def main():
     noverify = args.noverify
 
     if args.dst:
-        if re.search(r"~$", args.dst[0]):
-            dest_dir = os.path.expanduser(args.dst[0])
-        else:
-            dest_dir = os.path.abspath(args.dst[0])
+        dest_dir = os.path.abspath(args.dst[0])
     else:
         dest_dir = "/var/tmp"
 
@@ -179,11 +181,6 @@ def main():
 
     ssh_auth = SshAuth(host, user, logger)
 
-    def handlesigintssh(sigint, stack):
-        raise SystemExit
-
-    signal.signal(signal.SIGINT, handlesigintssh)
-
     if passwd:
         dev, ss = ssh_auth.ssh_passwd_auth(passwd)
     elif user != getpass.getuser():
@@ -193,9 +190,12 @@ def main():
             )
         )
         dev, ss = ssh_auth.ssh_passwd_auth()
-    elif args.ssh_key:
+    elif args.ssh_key is not None:
+        ssh_key = os.path.abspath(args.ssh_key[0])
+        if not os.path.isfile(ssh_key):
+            raise SystemExit("specified ssh key not found")
         print("attempting ssh PubkeyAuthentication using specified key")
-        dev, ss = ssh_auth.ssh_key_auth()
+        dev, ss = ssh_auth.ssh_key_auth(ssh_key=ssh_key)
     else:
         print("attempting ssh PubkeyAuthentication method")
         dev, ss = ssh_auth.ssh_key_auth()
@@ -343,11 +343,13 @@ class SshAuth:
             self.dev, self.ss = self.ssh_passwd_auth()
         except PasswordRequiredException:
             if ssh_key and key_password is None:
-                key_password = getpass.getpass("Password for SSH private key file: ")
+                key_password = getpass.getpass(
+                    "Enter passphrase for key '{}': ".format(ssh_key)
+                )
                 self.ssh_key_auth(key_password)
             else:
                 self.logger.info(
-                    "ssh PubkeyAuthentication failed due to " "incorrect key password"
+                    "ssh PubkeyAuthentication failed due to incorrect key passphrase"
                 )
                 self.dev, self.ss = self.ssh_passwd_auth()
         except AuthenticationException as err:
@@ -385,7 +387,7 @@ class SplitCopy:
         logger,
         noverify,
     ):
-        """ Initialise the SPLITCOPY class
+        """ Initialise the SplitCopy class
         """
         self.dev = dev
         self.ss = ss
@@ -430,6 +432,14 @@ class SplitCopy:
         # determine remote host os
         self.which_os()
 
+        self.ss.run("test -d {}".format(self.dest_dir))
+        if not self.ss.last_ok:
+            self.close(
+                err_str="remote directory specified '{}' does not exist".format(
+                    self.dest_dir
+                )
+            )
+
         # check required binaries exist on remote host
         self.req_binaries()
 
@@ -467,11 +477,6 @@ class SplitCopy:
                 if fnmatch.fnmatch(sfile, "{}*".format(self.file_name)):
                     sfiles.append(sfile)
             self.logger.debug("# of chunks = {}".format(len(sfiles)))
-
-            # begin pre transfer checks, check if remote directory exists
-            self.ss.run("test -d {}".format(self.dest_dir))
-            if not self.ss.last_ok:
-                self.close(err_str="remote directory specified does not exist")
 
             # end of pre transfer checks, create tmp directory
             self.mkdir_remote()
