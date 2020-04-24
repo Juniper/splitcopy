@@ -175,7 +175,8 @@ def main():
         try:
             port_check(logger, host, 21)
             copy_proto = "ftp"
-            passwd = getpass.getpass(prompt="Password: ", stream=None)
+            if passwd is None:
+                passwd = getpass.getpass(prompt="Password: ", stream=None)
         except:
             copy_proto = "scp"
 
@@ -1021,6 +1022,7 @@ class SplitCopy:
                     with open(
                         "{}{}{}".format(self.file_name, sfx_1, sfx_2), "wb"
                     ) as chunk:
+                        self.logger.debug("writing data to {}{}{}".format(self.file_name, sfx_1, sfx_2))
                         chunk_bytes = 0
                         while chunk_bytes < self.split_size:
                             data = src.read(buf_size)
@@ -1468,6 +1470,7 @@ class SplitCopy:
             None
         """
         self.local_tmpdir = tempfile.mkdtemp()
+        self.logger.debug(self.local_tmpdir)
 
         def cleanup():
             """ deletes temp dir
