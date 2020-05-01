@@ -1,8 +1,7 @@
 # Splitcopy
 
-Improves file transfer rates when copying files to/from JUNOS/EVO/\*nix hosts.  
-It achieves this by splitting a file into chunks, transferring the chunks to the remote host and recombining them.  
-
+Improves file transfer rates when copying files to/from JUNOS/EVO/\*nix hosts.
+  
 At a minimum, sshd must be running on the remote host.  
 On JUNOS/EVO this requires 'system services ssh' configuration.  
 
@@ -28,16 +27,17 @@ system {
 
 The script will deactivate these limits so it can proceed, then activate them again.  
 
-## Arguments
+## Arguments 
 
-`filepath`   Mandatory, path to the src file you want to copy  
-`userhost`   Mandatory, username and host to connect to, in format user@host  
-`--pwd`      Optional, password.  
-`--dst`      Optional, directory to put file. The default is /var/tmp/  
+`source`     Mandatory  
+`target`     Mandatory  
+`--pwd`      Optional, password  
 `--scp`      Optional, use scp instead of ftp to transfer files  
-`--get`      Optional, copy from remote to local host  
 `--log`      Optional, enables additional logging, specify a logging level as argument  
 `--noverify` Optional, skips sha1 hash comparison of src and dst file  
+
+The format of source and target arguments match those of the 'scp' cmd.  
+Both accept either a local path, or remote path in format \<user>@\<host>:\<path> or \<host>@\<path>  
 
 # INSTALLATION
 
@@ -62,7 +62,7 @@ Upgrading has the same requirements as installation and has the same format with
 ## FTP transfer (default method)
 
 ```
-$ ./splitcopy.py /var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz lab@192.168.1.1
+$ ./splitcopy.py /var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz lab@192.168.1.1:/var/tmp/
 Password:
 checking remote port(s) are open...
 using FTP for file transfer
@@ -70,15 +70,6 @@ checking remote storage...
 sha1 not found, generating sha1...
 splitting file...
 starting transfer...
-10% done
-20% done
-30% done
-40% done
-50% done
-60% done
-70% done
-80% done
-90% done
 100% done
 transfer complete
 joining files...
@@ -90,25 +81,16 @@ data transfer = 0:00:16.831192
 total runtime = 0:00:31.520914
 ```
 
-## SCP transfer with 'get'
+## SCP transfer
 
 ```
-$ ./splitcopy.py /var/log/messages lab@192.168.1.1 --scp --get
+$ ./splitcopy.py lab@192.168.1.1/var/log/messages /var/tmp/ --scp  
 Password:
 checking remote port(s) are open...
 using SCP for file transfer
 checking remote storage...
 generating remote sha1...
 starting transfer...
-10% done
-20% done
-30% done
-40% done
-50% done
-60% done
-70% done
-80% done
-90% done
 100% done
 transfer complete
 joining files...
@@ -123,7 +105,6 @@ total runtime = 0:00:44.891370
 ## Notes on using FTP
 
 FTP is the default transfer method.  
-FTP progress on --get operations is supported from py-junos-eznc v2.2.2  
 
 The version of Python used has a big impact.  
 If using < 3.6 the maximum number of simultaneous transfers is 5.  
