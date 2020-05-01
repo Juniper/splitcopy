@@ -7,10 +7,11 @@
     LICENSE.
 """
 
+# stdlib
 try:
     import asyncio
 except ImportError:
-    raise RuntimeError("This script requires Python 3.4+")
+    raise RuntimeError("Splitcopy requires Python 3.4+")
 import argparse
 import datetime
 import fnmatch
@@ -27,28 +28,24 @@ import shutil
 import socket
 import sys
 import tempfile
-import time
-import warnings
 from contextlib import contextmanager
-from paramiko.ssh_exception import SSHException
-from paramiko.ssh_exception import ChannelException
-from paramiko.ssh_exception import BadHostKeyException
-from paramiko.ssh_exception import AuthenticationException
-from paramiko.ssh_exception import BadAuthenticationType
-from paramiko.ssh_exception import PasswordRequiredException
-from scp import SCPException
-from jnpr.junos import Device
-from jnpr.junos.utils.ftp import FTP
-from jnpr.junos.utils.scp import SCP
-from jnpr.junos.utils.start_shell import StartShell
-from cryptography import utils
 
-warnings.simplefilter("ignore", utils.CryptographyDeprecationWarning)
+# 3rd party
+from scp import SCPClient
+from scp import SCPException
+from paramiko.ssh_exception import SSHException
+
+# local modules
+from paramikoshell import SSHShell
+
+
+logger = logging.getLogger(__name__)
 
 
 def main():
     """ body of script
     """
+
     def handlesigintssh(sigint, stack):
         raise SystemExit
 
@@ -90,7 +87,7 @@ def main():
     else:
         loglevel = args.log[0]
 
-    logger = logging.getLogger(__name__)
+    # logger = logging.getLogger(__name__)
     numeric_level = getattr(logging, loglevel.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError("Invalid log level: %s" % loglevel)
@@ -144,34 +141,13 @@ def main():
         file_size = os.path.getsize(file_path)
         logger.debug("src file size is {}".format(file_size))
 
-    try:
-        port_check(logger, host, 22)
-    except ConnectionRefusedError:
-        raise SystemExit("port 22 isn't open on remote host, can't proceed")
-    except socket.timeout:
-        raise SystemExit(
-            "ssh port check timed out after 10 seconds, "
-            "is the host reachable and ssh enabled?"
-        )
-    except (socket.gaierror, socket.herror) as err:
-        raise SystemExit(
-            "ip or hostname supplied is invalid or unreachable. "
-            "error was {}".format(err)
-        )
-    except Exception as err:
-        raise SystemExit(
-            "failed to connect to port 22 on remote host. error was {}".format(str(err))
-        )
-
     start_time = datetime.datetime.now()
 
     passwd = None
     if args.pwd:
         passwd = args.pwd[0]
 
-    if args.scp:
-        copy_proto = "scp"
-    else:
+    if not args.scp:
         try:
             port_check(logger, host, 21)
             copy_proto = "ftp"
@@ -179,48 +155,40 @@ def main():
                 passwd = getpass.getpass(prompt="Password: ", stream=None)
         except:
             copy_proto = "scp"
+    else:
+        copy_proto = "scp"
 
-    ssh_auth = SshAuth(host, user, logger)
-
-    if passwd:
-        dev, ss = ssh_auth.ssh_passwd_auth(passwd)
-    elif user != getpass.getuser():
-        print(
-            "skipping ssh key-based auth as user {} != {}".format(
-                user, getpass.getuser()
-            )
-        )
-        dev, ss = ssh_auth.ssh_passwd_auth()
-    elif args.ssh_key is not None:
+    ssh_key = None
+    if args.ssh_key is not None:
         ssh_key = os.path.abspath(args.ssh_key[0])
         if not os.path.isfile(ssh_key):
             raise SystemExit("specified ssh key not found")
-        print("attempting ssh PubkeyAuthentication using specified key")
-        dev, ss = ssh_auth.ssh_key_auth(ssh_key=ssh_key)
-    else:
-        print("attempting ssh PubkeyAuthentication method")
-        dev, ss = ssh_auth.ssh_key_auth()
 
-    print("ssh authentication succeeded")
+    kwargs = {
+        "user": user,
+        "host": host,
+        "passwd": passwd,
+        "ssh_key": ssh_key,
+        "logger": logger,
+    }
 
-    splitcopy = SplitCopy(
-        dev,
-        ss,
-        host,
-        dest_dir,
-        file_name,
-        file_path,
-        file_size,
-        copy_proto,
-        get,
-        logger,
-        noverify,
-    )
+    ss = SSHShell(**kwargs)
+    ss.open()
 
-    def handlesigint(sigint, stack):
-        splitcopy.close()
+    kwargs = {
+        "ss": ss,
+        "host": host,
+        "dest_dir": dest_dir,
+        "file_name": file_name,
+        "file_path": file_path,
+        "file_size": file_size,
+        "copy_proto": copy_proto,
+        "get": get,
+        "logger": logger,
+        "noverify": noverify,
+    }
 
-    signal.signal(signal.SIGINT, handlesigint)
+    splitcopy = SplitCopy(**kwargs)
 
     if get:
         loop_start, loop_end = splitcopy.get()
@@ -252,131 +220,12 @@ def port_check(logger, host, port):
         raise
 
 
-class SshAuth:
-    """ class providing ssh authentication
-    """
-
-    def __init__(self, host, user, logger):
-        """ Initialise the SSH_AUTH class
-        """
-        self.host = host
-        self.user = user
-        self.logger = logger
-        self.dev = None
-        self.ss = None
-
-    def ssh_passwd_auth(self, passwd=None):
-        """ authenticate via ssh PasswordAuthentication
-        Args:
-            passwd(str) - password
-        Returns:
-            dev(object) -pyez Device object
-            ss(object) - pyez StartShell object
-        Raises:
-            SystemExit - upon fatal exceptions
-        """
-        self.logger.debug("entering ssh_passwd_auth()")
-        if not passwd:
-            passwd = getpass.getpass(
-                prompt="{}@{}'s password: ".format(self.user, self.host), stream=None
-            )
-        self.dev = Device(host=self.host, user=self.user, passwd=passwd)
-        self.ss = StartShell(self.dev)
-        try:
-            self.ss.open()
-        except BadAuthenticationType:
-            raise SystemExit("ssh PasswordAuthentication method rejected")
-        except BadHostKeyException:
-            raise SystemExit(
-                "ssh PasswordAuthentication failed. delete the hosts key in "
-                "~/.ssh/known_hosts and retry"
-            )
-        except ChannelException:
-            raise SystemExit(
-                "ssh PasswordAuthentication failed while opening a channel"
-            )
-        except AuthenticationException as err:
-            raise SystemExit(
-                "ssh PasswordAuthentication failed, error was: {}".format(str(err))
-            )
-        except SSHException as err:
-            raise SystemExit("ssh error occurred, the error was: {}".format(str(err)))
-        except TimeoutError:
-            raise SystemExit("ssh PasswordAuthentication timed out")
-
-        # ensure session stays up
-        self.ss._chan.transport.set_keepalive(60)
-        return self.dev, self.ss
-
-    def ssh_key_auth(self, ssh_key=None, key_password=None):
-        """ authenticate using ssh PubkeyAuthentication
-        Args:
-            ssh_key(str) - path to private ssh key
-            key_password(str) - password for private ssh key
-        Returns:
-            dev(object) -pyez Device object
-            ss(object) - pyez StartShell object
-        Raises:
-            SystemExit - upon fatal error
-        """
-        self.logger.debug("entering ssh_key_auth()")
-        if key_password:
-            self.dev = Device(
-                host=self.host, ssh_private_key_file=ssh_key, passwd=key_password
-            )
-        elif ssh_key:
-            self.dev = Device(host=self.host, ssh_private_key_file=ssh_key)
-        else:
-            self.dev = Device(host=self.host)
-        self.ss = StartShell(self.dev)
-        try:
-            self.ss.open()
-        except BadAuthenticationType:
-            print("ssh PubkeyAuthentication method rejected")
-            self.dev, self.ss = self.ssh_passwd_auth()
-        except BadHostKeyException:
-            raise SystemExit(
-                "ssh PubkeyAuthentication failed. delete the hosts key in "
-                "~/.ssh/known_hosts and retry"
-            )
-        except ChannelException:
-            print("ssh PubkeyAuthentication failed while opening a channel")
-            self.dev, self.ss = self.ssh_passwd_auth()
-        except PasswordRequiredException:
-            if ssh_key and key_password is None:
-                key_password = getpass.getpass(
-                    "Enter passphrase for key '{}': ".format(ssh_key)
-                )
-                self.ssh_key_auth(key_password)
-            else:
-                self.logger.info(
-                    "ssh PubkeyAuthentication failed due to incorrect key passphrase"
-                )
-                self.dev, self.ss = self.ssh_passwd_auth()
-        except AuthenticationException as err:
-            print(
-                "ssh public-key authentication failed with error: {}".format(str(err))
-            )
-            self.dev, self.ss = self.ssh_passwd_auth()
-        except SSHException as err:
-            print("ssh public-key auth failed with error: {}".format(str(err)))
-            self.dev, self.ss = self.ssh_passwd_auth()
-        except TimeoutError:
-            print("ssh public-key authentication timed out")
-            self.dev, self.ss = self.ssh_passwd_auth()
-
-        # ensure session stays up
-        self.ss._chan.transport.set_keepalive(60)
-        return self.dev, self.ss
-
-
 class SplitCopy:
     """ class docstring
     """
 
     def __init__(
         self,
-        dev,
         ss,
         host,
         dest_dir,
@@ -390,7 +239,6 @@ class SplitCopy:
     ):
         """ Initialise the SplitCopy class
         """
-        self.dev = dev
         self.ss = ss
         self.host = host
         self.dest_dir = dest_dir
@@ -407,7 +255,7 @@ class SplitCopy:
         self.noverify = noverify
         self.local_sha1 = None
         self.local_tmpdir = None
-        self.tasks = None
+        self.tasks = []
         self.split_size = None
         self.remote_tmpdir = None
         self.remote_sha1 = None
@@ -418,6 +266,11 @@ class SplitCopy:
         self.sshd_version = 0.0
         self.sha_bin = None
         self.mute = False
+        self.client = []
+
+        def handlesigint(sigint, stack):
+            self.close()
+        signal.signal(signal.SIGINT, handlesigint)
 
     def put(self):
         """ initiates the connection to the remote host
@@ -497,14 +350,18 @@ class SplitCopy:
             # copy files to remote host
             self.hard_close = True
             loop_start = datetime.datetime.now()
+            print("starting transfer...")
             loop = asyncio.get_event_loop()
-            self.tasks = []
+            self.client.append(self.ss._client)
+            num_chan = 1
             for sfile in sfiles:
+                # ensures self.client is correct size
+                self.client.append(None)
                 task = loop.run_in_executor(
-                    None, functools.partial(self.put_files, sfile, **kwargs)
+                    None, functools.partial(self.put_files, sfile, num_chan, **kwargs)
                 )
                 self.tasks.append(task)
-            print("starting transfer...")
+                num_chan += 1
             try:
                 loop.run_until_complete(asyncio.gather(*self.tasks))
             except KeyboardInterrupt:
@@ -542,7 +399,7 @@ class SplitCopy:
             # generate a sha1 for the combined file, compare to sha1 of src
             self.remote_sha1_put()
 
-        self.dev.close()
+        self.ss.close()
         return loop_start, loop_end
 
     def get(self):
@@ -605,7 +462,7 @@ class SplitCopy:
         remote_files = self.ss.run("ls -1 {}/".format(self.remote_tmpdir))
         if not self.ss.last_ok:
             self.close(err_str="couldn't get list of files from host")
-        remote_files = remote_files[1].split("\r\n")
+        remote_files = remote_files.split("\r\n")
         sfiles = []
         for sfile in remote_files:
             if fnmatch.fnmatch(sfile, "{}*".format(self.file_name)):
@@ -672,7 +529,7 @@ class SplitCopy:
             # generate a sha1 for the combined file, compare to sha1 of src
             self.local_sha1_get()
 
-        self.dev.close()
+        self.ss.close()
         return loop_start, loop_end
 
     def which_os(self):
@@ -690,7 +547,7 @@ class SplitCopy:
         if not self.ss.last_ok:
             err = "failed to determine remote host os, it must be *nix based"
             self.close(err_str=err)
-        self.host_os = host_os[1].split("\n")[1].rstrip()
+        self.host_os = host_os.split("\n")[1].rstrip()
         if self.host_os == "Linux" and self.evo_os():
             self.evo = True
         else:
@@ -727,7 +584,7 @@ class SplitCopy:
         uname = self.ss.run("uname -i", timeout=30)
         if not self.ss.last_ok:
             self.close(err_str="failed to determine remote host os")
-        uname = uname[1].split("\n")[1]
+        uname = uname.split("\n")[1]
         if re.match(r"JUNIPER", uname):
             self.junos = True
             self.bsd_version = 6.0
@@ -752,7 +609,7 @@ class SplitCopy:
         uname = self.ss.run("uname -r", timeout=30)
         if not self.ss.last_ok:
             self.close(err_str="failed to determine remote bsd version")
-        uname = uname[1].split("\n")[1]
+        uname = uname.split("\n")[1]
         self.bsd_version = float(uname.split("-")[1])
 
     def which_sshd(self):
@@ -766,9 +623,9 @@ class SplitCopy:
         """
         self.logger.debug("entering which_sshd()")
         output = self.ss.run("sshd -v", timeout=30)
-        if not re.search(r"OpenSSH_", output[1]):
+        if not re.search(r"OpenSSH_", output):
             self.close(err_str="failed to determine remote openssh version")
-        output = output[1].split("\n")[2]
+        output = output.split("\n")[2]
         version = re.sub(r"OpenSSH_", "", output)
         self.sshd_version = float(version[0:3])
 
@@ -822,14 +679,14 @@ class SplitCopy:
                 SystemExit - terminates the script gracefully
                 os._exit - terminates the script immediately (even asychio loop)
         """
-        if err_str:
-            print(err_str)
         if self.rm_remote_tmp:
             self.remote_cleanup()
         if self.config_rollback and self.command_list:
             self.limits_rollback()
         print("closing device connection")
-        self.dev.close()
+        self.ss.close()
+        if err_str:
+            print(err_str)
         if self.hard_close:
             try:
                 shutil.rmtree(self.local_tmpdir)
@@ -865,7 +722,7 @@ class SplitCopy:
             self.close(
                 err_str=(
                     "failed to combine chunks on remote host. "
-                    "error was:\n{}".format(cmd_out[1])
+                    "error was:\n{}".format(cmd_out)
                 )
             )
 
@@ -881,8 +738,8 @@ class SplitCopy:
         self.logger.debug("entering join_files_local()")
         print("joining files...")
         buf_size = 131072
-        src_files = glob.glob(self.local_tmpdir + "/" + self.file_name + "*")
-        dst_file = self.dest_dir + "/" + self.file_name
+        src_files = glob.glob(self.local_tmpdir + os.path.sep + self.file_name + "*")
+        dst_file = self.dest_dir + os.path.sep + self.file_name
         with open(dst_file, "wb") as dst:
             for src in sorted(src_files):
                 with open(src, "rb") as chunk:
@@ -925,9 +782,9 @@ class SplitCopy:
             )
             return
         if self.sha_bin == "sha1sum" or self.sha_bin == "shasum":
-            remote_sha1 = sha1_tuple[1].split("\n")[1].split()[0].rstrip()
+            remote_sha1 = sha1_tuple.split("\n")[1].split()[0].rstrip()
         else:
-            remote_sha1 = sha1_tuple[1].split("\n")[1].split()[3].rstrip()
+            remote_sha1 = sha1_tuple.split("\n")[1].split()[3].rstrip()
         self.logger.debug("remote sha1 = {}".format(remote_sha1))
         if self.local_sha1 == remote_sha1:
             print(
@@ -1091,7 +948,7 @@ class SplitCopy:
         print("generating local sha1...")
         buf_size = 131072
         sha1 = hashlib.sha1()
-        dst_file = self.dest_dir + "/" + self.file_name
+        dst_file = self.dest_dir + os.path.sep + self.file_name
         with open(dst_file, "rb") as dst:
             data = dst.read(buf_size)
             while data:
@@ -1099,22 +956,18 @@ class SplitCopy:
                 data = dst.read(buf_size)
         local_sha1 = sha1.hexdigest()
         self.logger.debug("local sha1 = {}".format(local_sha1))
-        if os.name == "nt":
-            slash = "\\"
-        else:
-            slash = "/"
         if local_sha1 == self.remote_sha1:
             print(
                 "local and remote sha1 match\nfile has been "
                 "successfully copied to {}{}{}".format(
-                    self.dest_dir, slash, self.file_name
+                    self.dest_dir, os.path.sep, self.file_name
                 )
             )
         else:
             err = (
                 "file has been copied to {}{}{}, but the "
                 "local and remote sha1 do not match - "
-                "please retry".format(self.dest_dir, slash, self.file_name)
+                "please retry".format(self.dest_dir, os.path.sep, self.file_name)
             )
             self.config_rollback = False
             self.close(err_str=err)
@@ -1155,7 +1008,7 @@ class SplitCopy:
             None
         """
         self.logger.debug("entering mkdir_remote()")
-        ts = time.strftime("%y%m%d%H%M%S")
+        ts = datetime.datetime.strftime(datetime.datetime.now(), "%y%m%d%H%M%S")
         if self.get_op:
             self.remote_tmpdir = "/var/tmp/splitcopy_{}.{}".format(self.file_name, ts)
         else:
@@ -1166,7 +1019,7 @@ class SplitCopy:
         if not self.ss.last_ok:
             err = (
                 "unable to create the tmp directory on remote host."
-                "cmd output was:\n{}".format(cmd_out[1])
+                "cmd output was:\n{}".format(cmd_out)
             )
             self.close(err_str=err)
         self.rm_remote_tmp = True
@@ -1184,7 +1037,7 @@ class SplitCopy:
         remote_sha1 = self.ss.run("cat {}.sha1".format(self.file_path))
         if self.ss.last_ok:
             self.logger.debug("sha1 file found")
-            self.remote_sha1 = remote_sha1[1].split("\n")[1].rstrip()
+            self.remote_sha1 = remote_sha1.split("\n")[1].rstrip()
         else:
             print("generating remote sha1...")
             remote_sha1 = self.ss.run(
@@ -1194,9 +1047,9 @@ class SplitCopy:
                 self.close(err_str="failed to generate remote sha1")
 
             if self.sha_bin == "sha1sum" or self.sha_bin == "shasum":
-                self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[0].rstrip()
+                self.remote_sha1 = remote_sha1.split("\n")[1].split()[0].rstrip()
             else:
-                self.remote_sha1 = remote_sha1[1].split("\n")[1].split()[3].rstrip()
+                self.remote_sha1 = remote_sha1.split("\n")[1].split()[3].rstrip()
         self.logger.debug("remote sha1 = {}".format(self.remote_sha1))
 
     def remote_filesize(self):
@@ -1211,7 +1064,7 @@ class SplitCopy:
         self.logger.debug("entering remote_filesize()")
         file_size = self.ss.run("ls -l {}".format(self.file_path))
         if self.ss.last_ok:
-            self.file_size = int(file_size[1].split("\n")[1].split()[4])
+            self.file_size = int(file_size.split("\n")[1].split()[4])
         else:
             self.close(err_str="cannot determine remote file size")
         self.logger.debug("src file size is {}".format(self.file_size))
@@ -1236,13 +1089,13 @@ class SplitCopy:
             df_tuple = self.ss.run("df -k {}".format(self.dest_dir))
         if not self.ss.last_ok:
             self.close(err_str="failed to determine remote disk space available")
-        df_num = len(df_tuple[1].split("\n")) - 2
-        if re.match(r"^ ", df_tuple[1].split("\n")[df_num]):
+        df_num = len(df_tuple.split("\n")) - 2
+        if re.match(r"^ ", df_tuple.split("\n")[df_num]):
             split_num = 2
         else:
             split_num = 3
         try:
-            avail_blocks = df_tuple[1].split("\n")[df_num].split()[split_num].rstrip()
+            avail_blocks = df_tuple.split("\n")[df_num].split()[split_num].rstrip()
         except:
             err_str = "unable to determine available blocks on remote host"
             self.close(err_str)
@@ -1310,7 +1163,7 @@ class SplitCopy:
                 )
                 self.close(err_str)
 
-    def put_files(self, sfile, **kwargs):
+    def put_files(self, sfile, num_chan, **kwargs):
         """ copies files to remote host via ftp or scp
         Args:
             self - class variables inherited from __init__
@@ -1341,30 +1194,49 @@ class SplitCopy:
         else:
             while retry:
                 try:
-                    with SCP(self.dev, **kwargs) as scp_proto:
+                    self.client[num_chan] = self.ss.open_ssh_client()
+                    transport = self.ss.get_transport(self.client[num_chan])
+                    with SCPClient(transport, **kwargs) as scp_proto:
                         scp_proto.put(sfile, "{}/".format(self.remote_tmpdir))
                         retry = 0
                         success = True
+                        self.client[num_chan].close()
                 except SCPException as err:
                     err = str(err).split(":")[-1].rstrip().lstrip()
                     if not self.mute:
-                        print(
-                            "retrying file {} due to SCP error: {}".format(sfile, err)
+                        self.logger.warning(
+                            "retrying file {} due to SCP error: {}".format(
+                                sfile, str(err)
+                            )
                         )
                     retry -= 1
                 except IOError:
                     if not self.mute:
-                        print("retrying file {} due to IOError".format(sfile))
+                        self.logger.warning(
+                            "retrying file {} due to IOError".format(sfile)
+                        )
                     retry -= 1
                 except SSHException as err:
                     if not self.mute:
-                        print(
-                            "retrying file {} due to SSH error: {}".format(sfile, err)
+                        self.logger.warning(
+                            "retrying file {} due to SSH error: {}".format(
+                                sfile, str(err)
+                            )
+                        )
+                    retry -= 1
+                except EOFError:
+                    if not self.mute:
+                        self.logger.warning(
+                            "retrying file {} due to socket EOFError".format(sfile)
                         )
                     retry -= 1
                 except Exception as err:
                     if not self.mute:
-                        print("retrying file {} due to error: {}".format(sfile, err))
+                        self.logger.warning(
+                            "retrying file {} due to unknown error: {}".format(
+                                sfile, str(err)
+                            )
+                        )
                     retry -= 1
 
         if not success:
@@ -1405,7 +1277,7 @@ class SplitCopy:
         else:
             while retry:
                 try:
-                    with SCP(self.dev, **kwargs) as scp_proto:
+                    with SCPClient(self.ss.get_transport(ssh), **kwargs) as scp_proto:
                         scp_proto.get(
                             "{}/{}".format(self.remote_tmpdir, sfile),
                             local_path="{}/{}".format(self.local_tmpdir, sfile),
@@ -1510,7 +1382,7 @@ class SplitCopy:
             config = self.ss.run(
                 'cli -c "show configuration {} | display set | no-more"'.format(stanza)
             )
-            cli_config += config[1]
+            cli_config += config
         for limit in limits:
             if (
                 cli_config
