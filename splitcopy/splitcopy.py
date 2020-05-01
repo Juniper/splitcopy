@@ -822,14 +822,14 @@ class SplitCopy:
                 SystemExit - terminates the script gracefully
                 os._exit - terminates the script immediately (even asychio loop)
         """
+        if err_str:
+            print(err_str)
         if self.rm_remote_tmp:
             self.remote_cleanup()
         if self.config_rollback and self.command_list:
             self.limits_rollback()
         print("closing device connection")
         self.dev.close()
-        if err_str:
-            print(err_str)
         if self.hard_close:
             try:
                 shutil.rmtree(self.local_tmpdir)
