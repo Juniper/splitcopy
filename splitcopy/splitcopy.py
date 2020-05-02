@@ -14,7 +14,6 @@ except ImportError:
     raise RuntimeError("Splitcopy requires Python 3.4+")
 import argparse
 import datetime
-import time
 import fnmatch
 import functools
 import getpass
@@ -34,7 +33,6 @@ from contextlib import contextmanager
 
 # 3rd party
 from ssh2.exceptions import *
-from ssh2.error_codes import LIBSSH2_ERROR_EAGAIN
 
 # local modules
 from ssh2shell import SSH2Shell
