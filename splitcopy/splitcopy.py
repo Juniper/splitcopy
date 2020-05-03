@@ -97,6 +97,7 @@ def main():
     )
 
     user = None
+    user_specified = False
     host = None
     passwd = None
     ssh_key = None
@@ -114,6 +115,7 @@ def main():
     if re.search(r".*:", source):
         if re.search(r"@", source):
             user = source.split("@")[0]
+            user_specified = True
             host = source.split("@")[1]
             host = host.split(":")[0]
         else:
@@ -145,6 +147,7 @@ def main():
     if re.search(r".*:", target):
         if re.search(r"@", target):
             user = target.split("@")[0]
+            user_specified = True
             host = target.split("@")[1]
             host = host.split(":")[0]
         else:
@@ -178,6 +181,10 @@ def main():
         try:
             ftp_port_check(host)
             copy_proto = "ftp"
+            if not user_specified:
+                user_input = input("Username (or hit enter to use '{}'): ".format(user))
+                if user_input != "":
+                    user = user_input
             if passwd is None:
                 passwd = getpass.getpass(prompt="Password: ", stream=None)
         except (socket.gaierror, socket.herror):
