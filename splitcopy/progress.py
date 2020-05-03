@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 class Progress:
-    """ class which both FTP and SSH2SCPClient calls back to.
+    """ class which both FTP and SCPClient calls back to.
         provides a progress meter to the user
         TODO, provide per file values as well as total value.
             issue is using the below method will not overwrite
