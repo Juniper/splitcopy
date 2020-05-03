@@ -6,7 +6,7 @@ _RECVSZ = 1024
 
 logger = logging.getLogger(__name__)
 
-class SSH2ScpClient:
+class SCPClient:
     """ class providing scp client functionality using ssh2-python lib
     """
 

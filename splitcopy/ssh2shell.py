@@ -22,7 +22,7 @@ _RECVSZ = 1024
 logger = logging.getLogger(__name__)
 
 
-class SSH2Shell:
+class SSHShell:
     """ class providing ssh connectivity using ssh2-python lib
     """
 
@@ -49,17 +49,7 @@ class SSH2Shell:
             :returns None:
             :raises OSError, EOFError, SSH2Error, Exception: upon failure
         """
-        try:
-            self.session_open()
-        except OSError:
-            raise
-        except EOFError:
-            raise
-        except SSH2Error:
-            raise
-        except Exception as err:
-            raise
-
+        self.session_open()
 
     def socket_open(self):
         """ open a socket to remote host
@@ -67,34 +57,7 @@ class SSH2Shell:
             :raises SystemExit: if port isn't open
             :raises Exception: for other exceptions
         """
-        try:
-            sock = socket.create_connection((self.host, 22), 10)
-        except ConnectionRefusedError:
-            raise SystemExit(
-                "port 22 isn't open on remote host, can't proceed"
-            )
-        except socket.timeout:
-            raise Exception(
-                "ssh port check timed out after 10 seconds, "
-                "is the host reachable and ssh enabled?"
-            )
-        except socket.gaierror as err:
-            raise Exception(
-                "ip/ipv6 address supplied is invalid or unreachable. "
-                "error was {}".format(str(err))
-            )
-        except socket.herror as err:
-            raise Exception(
-                "hostname supplied is invalid or unreachable. "
-                "Error was: {}".format(str(err))
-            )
-        except Exception as err:
-            logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-            raise Exception(
-                "failed to connect to port 22 on remote host. error was {}".format(
-                    str(err)
-                )
-            )
+        sock = socket.create_connection((self.host, 22), 10)
         return sock
 
     def session_open(self):
@@ -228,24 +191,14 @@ class SSH2Shell:
         """
         result = False
 
-        try:
-            self.write(cmd)
-            stdout = self.stdout_read(timeout)
-        except TimeoutError:
-            raise
-        except SSH2Error:
-            raise
+        self.write(cmd)
+        stdout = self.stdout_read(timeout)
 
         if exitcode:
-            try:
-                self.write("echo $?".format(cmd))
-                rc = self.stdout_read(timeout)
-                if re.search(r"\r\n0\r\n", rc, re.MULTILINE):
-                    result = True
-            except TimeoutError:
-                raise
-            except SocketRecvError:
-                raise
+            self.write("echo $?".format(cmd))
+            rc = self.stdout_read(timeout)
+            if re.search(r"\r\n0\r\n", rc, re.MULTILINE):
+                result = True
         elif stdout is not None and stdout != "":
             result = True
         return result, stdout
@@ -261,17 +214,14 @@ class SSH2Shell:
         timeout_time = now + datetime.timedelta(seconds=timeout)
         output = ""
         while not _SHELL_PROMPT.search(output):
-            try:
-                rd, wr, err = select([self._sock], [], [], _SELECT_WAIT)
-                if rd:
+            rd, wr, err = select([self._sock], [], [], _SELECT_WAIT)
+            if rd:
+                size, data = self._chan.read(_RECVSZ)
+                while size == LIBSSH2_ERROR_EAGAIN:
                     size, data = self._chan.read(_RECVSZ)
-                    while size == LIBSSH2_ERROR_EAGAIN:
-                        size, data = self._chan.read(_RECVSZ)
-                    while size > 0:
-                        output += data.decode()
-                        size, data = self._chan.read()
-            except SocketRecvError:
-                raise
+                while size > 0:
+                    output += data.decode()
+                    size, data = self._chan.read()
             if datetime.datetime.now() > timeout_time:
                 raise TimeoutError
         return output
@@ -284,4 +234,3 @@ class SSH2Shell:
             self._chan.close()
             logger.info("SSH channel exit status: %s" % self._chan.get_exit_status())
         self._session.disconnect()
-

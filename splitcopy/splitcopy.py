@@ -35,8 +35,8 @@ from contextlib import contextmanager
 from ssh2.exceptions import *
 
 # local modules
-from ssh2shell import SSH2Shell
-from ssh2scp import SSH2ScpClient
+from ssh2shell import SSHShell
+from ssh2scp import SCPClient
 from progress import Progress
 from ftp import FTP
 
@@ -155,7 +155,8 @@ def main():
             host = target.split(":")[0]
         target_dir = target.split(":")[1]
         if target_dir is None:
-            target_dir = "~"
+            target_dir = "."
+            target_file = file_name
     elif os.path.isdir(target):
         target_dir = target
         target_file = file_name
@@ -231,13 +232,16 @@ def main():
 
 def ftp_port_check(host):
     """ checks if ftp port is open on remote host, emulates 'nc -z <host> <port>'
+        :param host: host to test
+        :type: string
+        :returns: None
+        :raises: any exception
     """
     logger.debug("entering ftp_port_check()")
     try:
         socket.create_connection((host, 21), 10)
     except Exception:
         raise
-
 
 class SplitCopy:
     """ copies a file between hosts
@@ -281,23 +285,22 @@ class SplitCopy:
         self.sha_bin = None
         self.mute = False
         self.sha_size = None
-
-        def handlesigint(sigint, stack):
-            self.close()
-
-        signal.signal(signal.SIGINT, handlesigint)
-
-        self.ssh2_kwargs = {
+        self.ssh_kwargs = {
             "user": self.user,
             "host": self.host,
             "passwd": self.passwd,
             "ssh_key": self.ssh_key,
         }
 
+        def handlesigint(sigint, stack):
+            self.close()
+
+        signal.signal(signal.SIGINT, handlesigint)
+
         try:
-            self.ss = SSH2Shell(**self.ssh2_kwargs)
+            self.ss = SSHShell(**self.ssh_kwargs)
             self.ss.open()
-            self.ssh2_kwargs.update({"passwd": self.ss.passwd})
+            self.ssh_kwargs.update({"passwd": self.ss.passwd})
             self.ss.channel_open()
             self.ss.set_blocking(False)
             self.ss.set_keepalive()
@@ -376,7 +379,6 @@ class SplitCopy:
             # add chunk names to a list
             sfiles = []
             for sfile in os.listdir("."):
-                logger.debug("{}, {}".format(sfile, os.path.getsize(sfile)))
                 if fnmatch.fnmatch(sfile, "{}*".format(self.file_name)):
                     sfiles.append(sfile)
             logger.debug("# of chunks = {}".format(len(sfiles)))
@@ -530,6 +532,7 @@ class SplitCopy:
             )
         else:
             self.copy_kwargs.update({"callback": Progress(self.file_size).handle})
+
         with self.tempdir():
             # copy files from remote host
             self.hard_close = True
@@ -589,7 +592,7 @@ class SplitCopy:
         """
         logger.debug("entering which_os()")
         self.ss.run("start shell", exitcode=False)
-        result, stdout = self.ss.run("uname", exitcode=True)
+        result, stdout = self.ss.run("uname")
         if not result:
             err = "failed to determine remote host os, it must be *nix based"
             self.close(err_str=err)
@@ -703,8 +706,14 @@ class SplitCopy:
         :returns None:
         """
         logger.debug("entering req_sha_binaries()")
-        if self.sha_size == 256:
+        if self.sha_size == 512:
+            sha_bins = ["sha512sum", "sha512", "shasum"]
+        elif self.sha_size == 384:
+            sha_bins = ["sha384sum", "sha384", "shasum"]
+        elif self.sha_size == 256:
             sha_bins = ["sha256sum", "sha256", "shasum"]
+        elif self.sha_size == 224:
+            sha_bins = ["sha224sum", "sha224", "shasum"]
         else:
             sha_bins = ["sha1sum", "sha1", "shasum"]
 
@@ -820,17 +829,23 @@ class SplitCopy:
             self.config_rollback = False
             self.close(err_str=err)
 
-        if self.sha_size == 256 and self.sha_bin == "shasum":
+        if self.sha_size == 512 and self.sha_bin == "shasum":
+            cmd = "shasum -a 512"
+        elif self.sha_size == 384 and self.sha_bin == "shasum":
+            cmd = "shasum -a 384"
+        elif self.sha_size == 256 and self.sha_bin == "shasum":
             cmd = "shasum -a 256"
+        elif self.sha_size == 224 and self.sha_bin == "shasum":
+            cmd = "shasum -a 224"
         else:
             cmd = "{}".format(self.sha_bin)
 
         result, stdout = self.ss.run(
-            "{} {}/{}".format(cmd, self.target_dir, self.target_file)
+            "{} {}/{}".format(cmd, self.target_dir, self.target_file), timeout=300
         )
         if not result:
             print(
-                "remote sha hash generation failed,  "
+                "remote sha hash generation failed or timed out, "
                 'manually check the output of "{} <file>" and '
                 "compare against {}".format(cmd, self.local_sha)
             )
@@ -976,7 +991,7 @@ class SplitCopy:
             with open("split.sh", "w") as fd:
                 fd.write(cmd)
             self.ss.set_blocking(True)
-            with SSH2ScpClient(ssh2=self.ss) as scpclient:
+            with SCPClient(ssh2=self.ss, **self.copy_kwargs) as scpclient:
                 scpclient.scp_send(
                     "split.sh", "./split.sh", "{}/split.sh".format(self.remote_tmpdir)
                 )
@@ -996,9 +1011,15 @@ class SplitCopy:
             :returns None:
         """
         logger.debug("entering local_sha_get()")
-        print("generating local sha...")
-        if self.sha_size == 256:
+        print("generating local sha hash...")
+        if self.sha_size == 512:
+            sha = hashlib.sha512()
+        elif self.sha_size == 384:
+            sha = hashlib.sha384()
+        elif self.sha_size == 256:
             sha = hashlib.sha256()
+        elif self.sha_size == 224:
+            sha = hashlib.sha224()
         else:
             sha = hashlib.sha1()
         dst_file = self.target_dir + os.path.sep + self.target_file
@@ -1032,14 +1053,26 @@ class SplitCopy:
         """
         file_path = self.file_path
         logger.debug("entering local_sha_put()")
-        if os.path.isfile(file_path + ".sha1"):
-            shafile = open(file_path + ".sha1", "r")
-            self.local_sha = shafile.read().split()[0].rstrip()
-            self.sha_size = 1
+        if os.path.isfile(file_path + ".sha512"):
+            with open(file_path + ".sha512", "r") as shafile:
+                self.local_sha = shafile.read().split()[0].rstrip()
+                self.sha_size = 512
+        elif os.path.isfile(file_path + ".sha384"):
+            with open(file_path + ".sha384", "r") as shafile:
+                self.local_sha = shafile.read().split()[0].rstrip()
+                self.sha_size = 384
         elif os.path.isfile(file_path + ".sha256"):
-            shafile = open(file_path + ".sha256", "r")
-            self.local_sha = shafile.read().split()[0].rstrip()
-            self.sha_size = 256
+            with open(file_path + ".sha256", "r") as shafile:
+                self.local_sha = shafile.read().split()[0].rstrip()
+                self.sha_size = 256
+        elif os.path.isfile(file_path + ".sha224"):
+            with open(file_path + ".sha224", "r") as shafile:
+                self.local_sha = shafile.read().split()[0].rstrip()
+                self.sha_size = 224
+        elif os.path.isfile(file_path + ".sha1"):
+            with open(file_path + ".sha1", "r") as shafile:
+                self.local_sha = shafile.read().split()[0].rstrip()
+                self.sha_size = 1
         else:
             print("sha1 not found, generating sha1...")
             sha1 = hashlib.sha1()
@@ -1081,8 +1114,11 @@ class SplitCopy:
         logger.debug("entering remote_sha_get()")
         file_path = self.file_path
         cmds = [
-            (1, "cat {}.sha1".format(file_path)),
+            (512, "cat {}.sha512".format(file_path)),
+            (384, "cat {}.sha384".format(file_path)),
             (256, "cat {}.sha256".format(file_path)),
+            (224, "cat {}.sha224".format(file_path)),
+            (1, "cat {}.sha1".format(file_path)),
         ]
         for cmd in cmds:
             result, stdout = self.ss.run(cmd[1])
@@ -1090,19 +1126,20 @@ class SplitCopy:
                 logger.debug("sha{} file found".format(cmd[0]))
                 self.remote_sha = stdout.split("\n")[1].rstrip()
                 self.sha_size = cmd[0]
-        else:
+                break
+        if not self.sha_size:
             self.sha_size = 1
             self.req_sha_binaries()
-            print("generating remote sha1...")
+            print("generating remote sha hash...")
             result, stdout = self.ss.run("{} {}".format(self.sha_bin, file_path))
             if not result:
                 self.close(err_str="failed to generate remote sha1")
 
-            if self.sha_bin == "sha1sum" or self.sha_bin == "shasum":
+            if self.sha_bin == "sha.*sum":
                 self.remote_sha = stdout.split("\n")[1].split()[0].rstrip()
             else:
                 self.remote_sha = stdout.split("\n")[1].split()[3].rstrip()
-        logger.debug("remote sha1 = {}".format(self.remote_sha))
+        logger.debug("remote sha = {}".format(self.remote_sha))
 
     def remote_filesize(self):
         """  determines the remote file size in bytes
@@ -1229,8 +1266,8 @@ class SplitCopy:
             dstpath = "{}/{}".format(self.remote_tmpdir, file)
             while err_count < 3:
                 try:
-                    with SSH2Shell(**self.ssh2_kwargs) as ssh2:
-                        with SSH2ScpClient(ssh2=ssh2, **self.copy_kwargs) as scpclient:
+                    with SSHShell(**self.ssh_kwargs) as ssh:
+                        with SCPClient(ssh2=ssh, **self.copy_kwargs) as scpclient:
                             scpclient.scp_send(file, srcpath, dstpath)
                             break
                 except SSH2Error:
@@ -1278,8 +1315,8 @@ class SplitCopy:
             dstpath = "{}/{}".format(self.local_tmpdir, file)
             while err_count < 3:
                 try:
-                    with SSH2Shell(**self.ssh2_kwargs) as ssh2:
-                        with SSH2ScpClient(ssh2=ssh2, **self.copy_kwargs) as scpclient:
+                    with SSHShell(**self.ssh_kwargs) as ssh:
+                        with SCPClient(ssh2=ssh, **self.copy_kwargs) as scpclient:
                             scpclient.scp_recv(file, srcpath, dstpath)
                             break
                 except SSH2Error:
@@ -1293,9 +1330,9 @@ class SplitCopy:
                         logger.error("retrying file {} due to Exception".format(file))
                     err_count += 1
 
-            if err_count == 3:
-                self.mute = True
-                raise TransferError
+        if err_count == 3:
+            self.mute = True
+            raise TransferError
 
     @contextmanager
     def change_dir(self, cleanup=lambda: True):

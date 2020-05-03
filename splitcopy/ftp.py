@@ -55,6 +55,7 @@ class FTP(ftplib.FTP):
 
             fileinfo = os.stat(local_file)
             self.file_size = fileinfo.st_size
+            logger.debug("{}, size {}".format(local_file, file_size))
 
             with open(local_file, "rb") as open_local_file:
                 def callback(data):
@@ -96,6 +97,8 @@ class FTP(ftplib.FTP):
         except Exception as err:
             logger.error(err)
             return False
+
+        logger.debug("{}, size {}".format(remote_file, self.file_size))
 
         with open(local_file, "wb") as local_fh:
             def callback(data):
