@@ -1,8 +1,8 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name="splitcopy",
-    version='1.0.14',
+    version='1.1.0',
     url="https://github.com/Juniper/splitcopy",
     author="Chris Jenn",
     author_email="jnpr-community-netdev@juniper.net",
@@ -10,13 +10,14 @@ setup(
     description="Improves file transfer rates when copying files to/from JUNOS/EVO/*nix hosts",
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
+    packages=find_packages('.'),
     keywords=['ftp', 'ssh', 'scp', 'transfer'],
     py_modules=['splitcopy'],
     python_requires='>=3.4',
     install_requires=['junos-eznc>=2.3.0'],
     entry_points={
         'console_scripts': [
-            'splitcopy=splitcopy:main',
+            'splitcopy=splitcopy.splitcopy:main',
         ],
     },
     classifiers=[
