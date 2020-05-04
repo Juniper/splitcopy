@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name="splitcopy",
@@ -10,13 +10,14 @@ setup(
     description="Improves file transfer rates when copying files to/from JUNOS/EVO/*nix hosts",
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
+    packages=find_packages('.'),
     keywords=['ftp', 'ssh', 'scp', 'transfer'],
     py_modules=['splitcopy'],
     python_requires='>=3.4',
     install_requires=['ssh2-python>=0.18.0.post1'],
     entry_points={
         'console_scripts': [
-            'splitcopy=splitcopy:main',
+            'splitcopy=splitcopy.splitcopy:main',
         ],
     },
     classifiers=[
