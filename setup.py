@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="splitcopy",
-    version='1.0.15.1',
+    version='1.0.15.2',
     url="https://github.com/Juniper/splitcopy",
     author="Chris Jenn",
     author_email="jnpr-community-netdev@juniper.net",
@@ -17,7 +17,7 @@ setup(
     install_requires=['junos-eznc>=2.3.0'],
     entry_points={
         'console_scripts': [
-            'splitcopy=splitcopy:main',
+            'splitcopy=splitcopy.splitcopy:main',
         ],
     },
     classifiers=[
