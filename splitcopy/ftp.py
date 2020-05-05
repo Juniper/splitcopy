@@ -20,7 +20,7 @@ class FTP(ftplib.FTP):
         self.host = kwargs.get("host")
         self.user = kwargs.get("user")
         self.passwd = kwargs.get("passwd")
-        self.callback = kwargs.get("callback")
+        self.callback = kwargs.get("progress")
         self.header_bytes = 33
         self.sent = 0
         self.file_size = 0
@@ -55,7 +55,7 @@ class FTP(ftplib.FTP):
 
             fileinfo = os.stat(local_file)
             self.file_size = fileinfo.st_size
-            logger.debug("{}, size {}".format(local_file, file_size))
+            logger.debug("{}, size {}".format(local_file, self.file_size))
 
             with open(local_file, "rb") as open_local_file:
                 def callback(data):

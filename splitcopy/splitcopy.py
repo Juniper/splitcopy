@@ -105,6 +105,7 @@ def main():
     ssh_key = None
     target_dir = None
     target_file = None
+    target_path = None
     file_name = None
     file_path = None
     file_size = 0
@@ -141,7 +142,7 @@ def main():
         logger.debug("src file size is {}".format(file_size))
     else:
         raise SystemExit(
-            "args.source is not a valid path to a local "
+            "specified source is not a valid path to a local "
             "file, or is not in the format <user>@<host>:<path> "
             "or <host>:<path>"
         )
@@ -155,12 +156,12 @@ def main():
         else:
             user = getpass.getuser()
             host = target.split(":")[0]
-        target_dir = target.split(":")[1]
-        if target_dir is None:
+        target_path = target.split(":")[1]
+        if target_path is None:
             target_dir = "."
             target_file = file_name
     elif os.path.isdir(target):
-        target_dir = target
+        target_dir = target.rstrip("/")
         target_file = file_name
     elif os.path.isdir(os.path.dirname(target)):
         # we've been passed in a filename, may not exist yet
@@ -172,7 +173,7 @@ def main():
             target_file = file_name
     else:
         raise SystemExit(
-            "args.target is not a valid path to a local "
+            "specified target is not a valid path to a local "
             "file or directory, or is not in the format <user>@<host>:<path> "
             "or <host>:<path>"
         )
@@ -210,6 +211,7 @@ def main():
         "ssh_key": ssh_key,
         "target_dir": target_dir,
         "target_file": target_file,
+        "target_path": target_path,
         "file_name": file_name,
         "file_path": file_path,
         "file_size": file_size,
@@ -245,6 +247,7 @@ def ftp_port_check(host):
     except Exception:
         raise
 
+
 class SplitCopy:
     """ copies a file between hosts
         speeds up the process by splitting/transferring/combining the file
@@ -262,6 +265,7 @@ class SplitCopy:
         self.ssh_key = kwargs.get("ssh_key")
         self.target_dir = kwargs.get("target_dir")
         self.target_file = kwargs.get("target_file")
+        self.target_path = kwargs.get("target_path")
         self.file_name = kwargs.get("file_name")
         self.file_path = kwargs.get("file_path")
         self.file_size = kwargs.get("file_size")
@@ -302,36 +306,19 @@ class SplitCopy:
         try:
             self.ss = SSHShell(**self.ssh_kwargs)
             self.ss.open()
+            print("ssh auth succeeded")
             self.ssh_kwargs.update({"passwd": self.ss.passwd})
             self.ss.channel_open()
             self.ss.set_keepalive()
             # remove the welcome message from the socket
             self.ss.stdout_read(timeout=30)
-        except OSError:
-            logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-            raise SystemExit(
-                "OSError returned while connecting via ssh"
-            )
-        except EOFError:
-            logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-            raise SystemExit(
-                "EOFError returned while connecting via ssh"
-            )
-        except SSHException as err:
-            logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-            raise SystemExit(
-                "SSHException returned while connecting via ssh. error was: {}".format(
-                    str(err)
-                )
-            )
         except Exception as err:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
             raise SystemExit(
-                "Exception returned while connecting via ssh. Error was: {}".format(
-                    str(err)
+                "{} returned while connecting via ssh: {}".format(
+                    err.__class__.__name__, str(err)
                 )
             )
-
 
     def put(self):
         """ copies file from local host to remote host
@@ -395,16 +382,14 @@ class SplitCopy:
             if self.copy_proto == "ftp":
                 self.copy_kwargs.update(
                     {
-                        "callback": Progress(self.file_size).handle,
+                        "progress": Progress(self.file_size).handle,
                         "host": self.host,
                         "user": self.user,
                         "passwd": self.passwd,
                     }
                 )
             else:
-                self.copy_kwargs.update(
-                    {"progress": Progress(self.file_size).handle}
-                )
+                self.copy_kwargs.update({"progress": Progress(self.file_size).handle})
 
             # copy files to remote host
             self.hard_close = True
@@ -526,7 +511,7 @@ class SplitCopy:
         if self.copy_proto == "ftp":
             self.copy_kwargs.update(
                 {
-                    "callback": Progress(self.file_size).handle,
+                    "progress": Progress(self.file_size).handle,
                     "host": self.host,
                     "user": self.user,
                     "passwd": self.passwd,
@@ -613,32 +598,27 @@ class SplitCopy:
         """ path provided can be a directory, a new or existing file
             :return: None
         """
-        while self.target_file is None:
-            result, stdout = self.ss.run("test -d {}".format(self.target_dir))
-            if result:
-                # target path provided is a directory
+        if self.ss.run("test -d {}".format(self.target_path))[0]:
+            # target path provided is a directory
+            self.target_file = self.file_name
+            self.target_dir = self.target_path.rstrip("/")
+        elif (
+            self.ss.run("test -f {}".format(self.target_path))[0]
+            or self.ss.run("test -d {}".format(os.path.dirname(self.target_path)))[0]
+        ):
+            # target path provided is a file that already exists
+            if os.path.basename(self.target_path) != self.file_name:
+                # target path provided was a full path, file name does not match src
+                # honour the change of file name
+                self.target_file = os.path.basename(self.target_path)
+            else:
+                # target path provided was a full path, file name matches src
                 self.target_file = self.file_name
-                break
-            result, stdout = self.ss.run("test -f {}".format(self.target_dir))
-            if result:
-                # target path provided is a file that already exists
-                self.target_file = self.target_dir
-                self.target_dir = os.path.dirname((self.target_dir))
-                break
-            result, stdout = self.ss.run("test -d {}".format(os.path.dirname(self.target_dir)))
-            if result:
-                if os.path.basename(self.target_dir) != self.file_name:
-                    # target path provided was a full path, file name does not match src
-                    # honour the change of file name
-                    self.target_file = os.path.basename(self.target_dir)
-                else:
-                    # target path provided was a full path, file name matches src
-                    self.target_file = self.file_name
-                self.target_dir = os.path.dirname((self.target_dir))
-                break
+            self.target_dir = os.path.dirname(self.target_path)
+        else:
             self.close(
                 err_str="target path {} on remote host isn't valid".format(
-                    self.target_dir
+                    self.target_path
                 )
             )
 
@@ -795,8 +775,8 @@ class SplitCopy:
         except SSHException as err:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
             self.close(
-                err_str="SSHException while combining file chunks on remote host. Error was: {}".format(
-                    str(err)
+                err_str="{} while combining file chunks on remote host: {}".format(
+                    err.__class__.__name__, str(err)
                 )
             )
 
@@ -833,8 +813,10 @@ class SplitCopy:
             :returns None:
         """
         logger.debug("entering remote_sha_put()")
-        print("generating remote sha...")
-        result, stdout = self.ss.run("ls {}/{}".format(self.target_dir, self.target_file))
+        print("generating remote sha hash...")
+        result, stdout = self.ss.run(
+            "ls {}/{}".format(self.target_dir, self.target_file)
+        )
         if not result:
             err = "file {}:{}/{} not found! please retry".format(
                 self.host, self.target_dir, self.target_file
@@ -1005,8 +987,8 @@ class SplitCopy:
                 fd.write(cmd)
             transport = self.ss.get_transport(self.ss._session)
             with SCPClient(transport, **self.copy_kwargs) as scpclient:
-                scpclient.scp_send(
-                    "split.sh", "./split.sh", "{}/split.sh".format(self.remote_tmpdir)
+                scpclient.put(
+                    "split.sh", "{}/split.sh".format(self.remote_tmpdir)
                 )
 
         result, stdout = self.ss.run(
@@ -1147,7 +1129,7 @@ class SplitCopy:
             if not result:
                 self.close(err_str="failed to generate remote sha1")
 
-            if self.sha_bin == "sha.*sum":
+            if re.match(r"sha.*sum", self.sha_bin):
                 self.remote_sha = stdout.split("\n")[1].split()[0].rstrip()
             else:
                 self.remote_sha = stdout.split("\n")[1].split()[3].rstrip()
@@ -1249,140 +1231,98 @@ class SplitCopy:
                 )
                 self.close(err_str)
 
-    def put_files(self, file, **kwargs):
+    def put_files(self, file_name):
         """ copies files to remote host via ftp or scp
-            :param file: name of the file to copy
+            :param file_name: name of the file to copy
             :type: string
-            :param kwargs: named arguments
-            :type: dict
             :raises TransferError: if file transfer fails 3 times
             :returns None:
         """
         err_count = 0
+        dstpath = "{}/{}".format(self.remote_tmpdir, file_name)
         if self.copy_proto == "ftp":
             while err_count < 3:
                 try:
                     with FTP(**self.copy_kwargs) as ftp_proto:
-                        if ftp_proto.put(file, "{}/".format(self.remote_tmpdir)):
-                            break
-                        else:
-                            if not self.mute:
-                                print("retrying file {}".format(file))
-                            err_count += 1
+                        ftp_proto.put(file_name, dstpath)
+                        break
                 except Exception as err:
+                    logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        print("retrying file {} due to error: {}".format(file, err))
+                        logger.warning(
+                            "retrying file {} due to {}: {}".format(
+                                file_name, err.__class__.__name__, str(err)
+                            )
+                        )
                     err_count += 1
+                    time.sleep(err_count)
         else:
-            srcpath = "{}/{}".format(self.local_tmpdir, file)
-            dstpath = "{}/{}".format(self.remote_tmpdir, file)
             while err_count < 3:
                 try:
                     with SSHShell(**self.ssh_kwargs) as ssh:
                         transport = ssh.get_transport(ssh._session)
                         with SCPClient(transport, **self.copy_kwargs) as scpclient:
-                            scpclient.put(srcpath, dstpath)
+                            scpclient.put(file_name, dstpath)
                             break
-                except SCPException as err:
-                    err = str(err).split(":")[-1].rstrip().lstrip()
-                    if not self.mute:
-                        logger.warning(
-                            "retrying file {} due to SCP error: {}".format(
-                                file, str(err)
-                            )
-                        )
-                    err_count += 1
-                except IOError:
-                    if not self.mute:
-                        logger.warning(
-                            "retrying file {} due to IOError".format(file)
-                        )
-                    err_count += 1
-                except SSHException as err:
-                    if not self.mute:
-                        logger.warning(
-                            "retrying file {} due to SSH error: {}".format(
-                                file, str(err)
-                            )
-                        )
-                    err_count += 1
-                except EOFError:
-                    if not self.mute:
-                        logger.warning(
-                            "retrying file {} due to socket EOFError".format(file)
-                        )
-                    err_count += 1
                 except Exception as err:
+                    logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
                         logger.warning(
-                            "retrying file {} due to unknown error: {}".format(
-                                file, str(err)
+                            "retrying file {} due to {}: {}".format(
+                                file_name, err.__class__.__name__, str(err)
                             )
                         )
                     err_count += 1
+                    time.sleep(err_count)
 
         if err_count == 3:
             self.mute = True
             raise TransferError
 
-    def get_files(self, file, **kwargs):
+    def get_files(self, file_name):
         """ copies files from remote host via ftp or scp
-            :param file: name of the file to copy
+            :param file_name: name of the file to copy
             :type: string
-            :param kwargs: named arguments
-            :type: dict
             :raises TransferError: if file transfer fails 3 times
             :returns None:
         """
         err_count = 0
+        srcpath = "{}/{}".format(self.remote_tmpdir, file_name)
+        dstpath = "{}/{}".format(self.local_tmpdir, file_name)
         if self.copy_proto == "ftp":
             while err_count < 3:
                 try:
                     with FTP(**self.copy_kwargs) as ftp_proto:
-                        if ftp_proto.get(
-                            "{}/{}".format(self.remote_tmpdir, file),
-                            local_path="{}/{}".format(self.local_tmpdir, file),
-                        ):
-                            break
-                        else:
-                            if not self.mute:
-                                print("retrying file {}".format(file))
-                            err_count += 1
+                        ftp_proto.get(srcpath, dstpath)
+                        break
                 except Exception as err:
+                    logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        print("retrying file {} due to error: {}".format(file, err))
+                        logger.warning(
+                            "retrying file {} due to {}: {}".format(
+                                file_name, err.__class__.__name__, str(err)
+                            )
+                        )
                     err_count += 1
+                    time.sleep(err_count)
         else:
-            srcpath = "{}/{}".format(self.remote_tmpdir, file)
-            dstpath = "{}/{}".format(self.local_tmpdir, file)
             while err_count < 3:
                 try:
                     with SSHShell(**self.ssh_kwargs) as ssh:
                         transport = ssh.get_transport(ssh._session)
                         with SCPClient(transport, **self.copy_kwargs) as scpclient:
-                            scpclient.get(srcpath, dstpath)
+                            scpclient.get(srcpath, file_name)
                             break
-                except SCPException as err:
-                    err = str(err).split(":")[-1].rstrip().lstrip()
-                    if not self.mute:
-                        print(
-                            "retrying file {} due to SCP error: {}".format(file, err)
-                        )
-                    err_count += 1
-                except IOError:
-                    if not self.mute:
-                        print("retrying file {} due to IOError".format(file))
-                    err_count += 1
-                except SSHException as err:
-                    if not self.mute:
-                        print(
-                            "retrying file {} due to SSH error: {}".format(file, err)
-                        )
-                    err_count += 1
                 except Exception as err:
+                    logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        print("retrying file {} due to error: {}".format(file, err))
+                        logger.warning(
+                            "retrying file {} due to {}: {}".format(
+                                file_name, err.__class__.__name__, str(err)
+                            )
+                        )
                     err_count += 1
+                    time.sleep(err_count)
 
         if err_count == 3:
             self.mute = True
@@ -1530,6 +1470,7 @@ class TransferError(Exception):
     """
 
     pass
+
 
 if __name__ == "__main__":
     main()
