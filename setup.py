@@ -14,7 +14,7 @@ setup(
     keywords=['ftp', 'ssh', 'scp', 'transfer'],
     py_modules=['splitcopy'],
     python_requires='>=3.4',
-    install_requires=['junos-eznc>=2.3.0'],
+    install_requires=['paramiko', 'scp'],
     entry_points={
         'console_scripts': [
             'splitcopy=splitcopy.splitcopy:main',
