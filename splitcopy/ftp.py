@@ -7,6 +7,7 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+
 class FTP(ftplib.FTP):
     """ FTP utility used to transfer files to and from hosts
         mostly ripped from py-junos-eznc (with permission)
@@ -26,78 +27,42 @@ class FTP(ftplib.FTP):
         self.file_size = 0
         ftplib.FTP.__init__(self, self.host, self.user, self.passwd)
 
-    def put(self, local_file, remote_path=None):
+    def put(self, local_file, remote_file):
         """ copies file from local host to remote host
             :param local_file: path to local file
-            :type: string
-            :param remote_path: full path on server
-            :type: string
-            :returns: True upon success, else False
-        """
-        try:
-            mat = re.search("^.*/(.*)$", local_file)
-            if mat:
-                if not remote_path:
-                    remote_file = "/tmp/" + mat.group(1)
-                else:
-                    if re.search("^.*/(.*)$", remote_path) and re.search(
-                        "\.\w+$", remote_path
-                    ):
-                        remote_file = remote_path
-                        # Looks like remote path is given as file location
-                    else:
-                        remote_file = os.path.join(remote_path, mat.group(1))
-            else:
-                if not remote_path:
-                    remote_file = os.path.join("/tmp/", local_file)
-                else:
-                    remote_file = os.path.join(remote_path, local_file)
-
-            fileinfo = os.stat(local_file)
-            self.file_size = fileinfo.st_size
-            logger.debug("{}, size {}".format(local_file, self.file_size))
-
-            with open(local_file, "rb") as open_local_file:
-                def callback(data):
-                    if self.callback:
-                        size_data = sys.getsizeof(data) - self.header_bytes
-                        self.sent += size_data
-                        self.callback(file_name=os.path.basename(local_file), file_size=self.file_size, sent=self.sent)
-
-                self.storbinary(
-                    cmd="STOR " + remote_file,
-                    fp=open_local_file,
-                    callback=callback
-                )
-        except Exception as err:
-            logger.error(err)
-            return False
-        return True
-
-    def get(self, remote_file, local_path):
-        """ copies file from remote host to local host
-            :param local_path:  path to local file
             :type: string
             :param remote_file: full path on server
             :type: string
             :returns: True upon success, else False
         """
-        if os.path.isdir(local_path):
-            mat = re.search("^.*/(.*)$", remote_file)
-            if mat:
-                local_file = os.path.join(local_path, mat.group(1))
-            else:
-                local_file = local_path
-        else:
-            local_file = local_path
+        fileinfo = os.stat(local_file)
+        self.file_size = fileinfo.st_size
+        logger.debug("{}, size {}".format(local_file, self.file_size))
 
-        try:
-            self.voidcmd("TYPE I")
-            self.file_size = self.size(remote_file)
-        except Exception as err:
-            logger.error(err)
-            return False
+        with open(local_file, "rb") as open_local_file:
+            def callback(data):
+                if self.callback:
+                    size_data = sys.getsizeof(data) - self.header_bytes
+                    self.sent += size_data
+                    self.callback(
+                        file_name=os.path.basename(local_file),
+                        file_size=self.file_size,
+                        sent=self.sent,
+                    )
+            self.storbinary(
+                cmd="STOR " + remote_file, fp=open_local_file, callback=callback
+            )
 
+    def get(self, remote_file, local_file):
+        """ copies file from remote host to local host
+            :param remote_file: full path on server
+            :type: string
+            :param local_file:  path to local file
+            :type: string
+            :returns: True upon success, else False
+        """
+        self.voidcmd("TYPE I")
+        self.file_size = self.size(remote_file)
         logger.debug("{}, size {}".format(remote_file, self.file_size))
 
         with open(local_file, "wb") as local_fh:
@@ -106,11 +71,9 @@ class FTP(ftplib.FTP):
                 if self.callback:
                     size_data = sys.getsizeof(data) - self.header_bytes
                     self.sent += size_data
-                    self.callback(file_name=os.path.basename(local_file), file_size=self.file_size, sent=self.sent)
-
-            try:
-                self.retrbinary("RETR " + remote_file, callback)
-            except Exception as err:
-                logger.error(err)
-                return False
-            return True
+                    self.callback(
+                        file_name=os.path.basename(local_file),
+                        file_size=self.file_size,
+                        sent=self.sent,
+                    )
+            self.retrbinary("RETR " + remote_file, callback)
