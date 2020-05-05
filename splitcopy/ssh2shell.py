@@ -44,13 +44,6 @@ class SSHShell:
     def __exit__(self, exc_ty, exc_val, exc_tb):
         self.close()
 
-    def open(self):
-        """ wrapper function for session_open() to handle exceptions
-            :returns None:
-            :raises OSError, EOFError, SSH2Error, Exception: upon failure
-        """
-        self.session_open()
-
     def socket_open(self):
         """ open a socket to remote host
             :return sock: socket object
@@ -60,7 +53,7 @@ class SSHShell:
         sock = socket.create_connection((self.host, 22), 10)
         return sock
 
-    def session_open(self):
+    def open(self):
         """ opens an ssh2-python Session instance
             handles both key and password based authentication
             :return: None

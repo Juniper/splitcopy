@@ -20,7 +20,7 @@ class FTP(ftplib.FTP):
         self.host = kwargs.get("host")
         self.user = kwargs.get("user")
         self.passwd = kwargs.get("passwd")
-        self.callback = kwargs.get("callback")
+        self.callback = kwargs.get("progress")
         self.header_bytes = 33
         self.sent = 0
         self.file_size = 0
@@ -55,19 +55,22 @@ class FTP(ftplib.FTP):
 
             fileinfo = os.stat(local_file)
             self.file_size = fileinfo.st_size
-            logger.debug("{}, size {}".format(local_file, file_size))
+            logger.debug("{}, size {}".format(local_file, self.file_size))
 
             with open(local_file, "rb") as open_local_file:
+
                 def callback(data):
                     if self.callback:
                         size_data = sys.getsizeof(data) - self.header_bytes
                         self.sent += size_data
-                        self.callback(file_name=os.path.basename(local_file), file_size=self.file_size, sent=self.sent)
+                        self.callback(
+                            file_name=os.path.basename(local_file),
+                            file_size=self.file_size,
+                            sent=self.sent,
+                        )
 
                 self.storbinary(
-                    cmd="STOR " + remote_file,
-                    fp=open_local_file,
-                    callback=callback
+                    cmd="STOR " + remote_file, fp=open_local_file, callback=callback
                 )
         except Exception as err:
             logger.error(err)
@@ -101,12 +104,17 @@ class FTP(ftplib.FTP):
         logger.debug("{}, size {}".format(remote_file, self.file_size))
 
         with open(local_file, "wb") as local_fh:
+
             def callback(data):
                 local_fh.write(data)
                 if self.callback:
                     size_data = sys.getsizeof(data) - self.header_bytes
                     self.sent += size_data
-                    self.callback(file_name=os.path.basename(local_file), file_size=self.file_size, sent=self.sent)
+                    self.callback(
+                        file_name=os.path.basename(local_file),
+                        file_size=self.file_size,
+                        sent=self.sent,
+                    )
 
             try:
                 self.retrbinary("RETR " + remote_file, callback)
