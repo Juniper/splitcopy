@@ -25,7 +25,7 @@ from paramiko.ssh_exception import (
 logging.getLogger("paramiko").setLevel(logging.CRITICAL)
 warnings.simplefilter("ignore", utils.CryptographyDeprecationWarning)
 
-_SHELL_PROMPT = re.compile("(% |# |\$ |%\t)$")
+_SHELL_PROMPT = re.compile("(% |# |\$ |> |%\t)$")
 _SELECT_WAIT = 0.1
 _RECVSZ = 1024
 
