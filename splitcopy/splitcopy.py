@@ -193,7 +193,7 @@ def main():
                 passwd = getpass.getpass(prompt="Password: ", stream=None)
         except (socket.gaierror, socket.herror):
             raise SystemExit("address or hostname not reachable")
-        except (socket.timeout, ConnectionRefusedError):
+        except (socket.timeout, ConnectionRefusedError, IOError, OSError):
             copy_proto = "scp"
     else:
         copy_proto = "scp"

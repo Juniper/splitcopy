@@ -56,26 +56,10 @@ class SSHShell:
 
     def open(self):
         """
-        Open an ssh-client connection and issue the 'start shell' command to
-        drop into the Junos shell (csh).  This process opens a
+        This process opens a
         :class:`paramiko.SSHClient` instance.
         """
         self._session = self.session_open()
-
-    def socket_open(self, proxy=None):
-        """ open a socket to remote host
-            :param proxy: proxy to use
-            :type: string
-            :return sock: socket object
-            :raises SystemExit: if port isn't open
-            :raises Exception: for other exceptions
-        """
-        if proxy is not None:
-            # TODO
-            sock = socket.create_connection((self.host, 22), 10)                
-        else:
-            sock = socket.create_connection((self.host, 22), 10)
-        return sock
 
     def session_open(self):
         """ opens a paramiko.SSHClient instance
@@ -97,13 +81,7 @@ class SSHShell:
             config = config.lookup(self.host)
 
         if config.get("proxycommand"):
-            proxy = paramiko.proxy.ProxyCommand(config.get("proxycommand"))
-            self._sock = socket_open(proxy)
-        elif config.get("proxyjump"):
-            proxy = paramiko.proxy.ProxyJump(config.get("proxyjump"))
-            self._sock = socket_open(proxy)
-        else:
-            self._sock = self.socket_open()
+            self._sock =  paramiko.proxy.ProxyCommand(config.get("proxycommand"))
 
         agent = paramiko.Agent()
         agent_keys = agent.get_keys()
@@ -203,10 +181,9 @@ class SSHShell:
         logger.debug("sent '{}'".format(cmd))
 
     def close(self):
-        """ terminates both the channel and underlying session
+        """ terminates the session
             :return: None
         """
-        #self._chan.close()
         self._session.close()
 
     def run(self, cmd, timeout=30, exitcode=True):
