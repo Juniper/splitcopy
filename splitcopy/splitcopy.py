@@ -36,9 +36,9 @@ from contextlib import contextmanager
 from scp import SCPClient
 
 # local modules
-from paramikoshell import SSHShell
-from progress import Progress
-from ftp import FTP
+from splitcopy.paramikoshell import SSHShell
+from splitcopy.progress import Progress
+from splitcopy.ftp import FTP
 
 _BUF_SIZE_SPLIT = 10240
 _BUF_SIZE_READ = 131072
