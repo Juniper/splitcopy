@@ -986,10 +986,9 @@ class SplitCopy:
             with open("split.sh", "w") as fd:
                 fd.write(cmd)
             self.ss.set_blocking(True)
-            with SCPClient(session=self.ss._session, **self.copy_kwargs) as scpclient:
-                scpclient.put(
-                    "split.sh", "./split.sh", "{}/split.sh".format(self.remote_tmpdir)
-                )
+            session = self.ss._session
+            with SCPClient(session, **self.copy_kwargs) as scpclient:
+                scpclient.put("split.sh", "{}/split.sh".format(self.remote_tmpdir))
             self.ss.set_blocking(False)
 
         result, stdout = self.ss.run(
@@ -1240,7 +1239,6 @@ class SplitCopy:
             :returns None:
         """
         err_count = 0
-        srcpath = "{}/{}".format(self.local_tmpdir, file_name)
         dstpath = "{}/{}".format(self.remote_tmpdir, file_name)
         if self.copy_proto == "ftp":
             while err_count < 3:
@@ -1262,10 +1260,9 @@ class SplitCopy:
             while err_count < 3:
                 try:
                     with SSHShell(**self.ssh_kwargs) as ssh:
-                        with SCPClient(
-                            session=ssh._session, **self.copy_kwargs
-                        ) as scpclient:
-                            scpclient.put(file_name, srcpath, dstpath)
+                        session = ssh._session
+                        with SCPClient(session, **self.copy_kwargs) as scpclient:
+                            scpclient.put(file_name, dstpath)
                             break
                 except Exception as err:
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
@@ -1291,12 +1288,11 @@ class SplitCopy:
         """
         err_count = 0
         srcpath = "{}/{}".format(self.remote_tmpdir, file_name)
-        dstpath = "{}/{}".format(self.local_tmpdir, file_name)
         if self.copy_proto == "ftp":
             while err_count < 3:
                 try:
-                    with FTP(**self.copy_kwargs) as ftp_proto:
-                        ftp_proto.get(srcpath, dstpath)
+                    with FTP(**self.copy_kwargs) as ftp:
+                        ftp.get(srcpath, file_name)
                         break
                 except Exception as err:
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
@@ -1308,13 +1304,13 @@ class SplitCopy:
                         )
                     err_count += 1
                     time.sleep(err_count)
-
         else:
             while err_count < 3:
                 try:
                     with SSHShell(**self.ssh_kwargs) as ssh:
-                        with SCPClient(session=ssh._session, **self.copy_kwargs) as scpclient:
-                            scpclient.get(file_name, srcpath, dstpath)
+                        session = ssh._session
+                        with SCPClient(session, **self.copy_kwargs) as scpclient:
+                            scpclient.get(srcpath, file_name)
                             break
                 except Exception as err:
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))

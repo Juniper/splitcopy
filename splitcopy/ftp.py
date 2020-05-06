@@ -33,7 +33,6 @@ class FTP(ftplib.FTP):
             :type: string
             :param remote_file: full path on server
             :type: string
-            :returns: True upon success, else False
         """
         fileinfo = os.stat(local_file)
         self.file_size = fileinfo.st_size
@@ -59,7 +58,6 @@ class FTP(ftplib.FTP):
             :type: string
             :param local_file:  path to local file
             :type: string
-            :returns: True upon success, else False
         """
         self.voidcmd("TYPE I")
         self.file_size = self.size(remote_file)

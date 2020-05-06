@@ -11,10 +11,10 @@ class SCPClient:
     """ class providing scp client functionality using ssh2-python lib
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, session, **kwargs):
         """ Initialise the SSH2ScpClient class
         """
-        self._session = kwargs.get("session")
+        self._session = session
         self._callback = kwargs.get("progress")
         self.chan = None
 
@@ -24,9 +24,9 @@ class SCPClient:
     def __exit__(self, exc_ty, exc_val, exc_tb):
         self.close()
 
-    def put(self, fd, srcpath, dstpath, timeout=30000):
+    def put(self, srcpath, dstpath, timeout=30000):
         """ copies a file from local to remote host
-            :param fd: file name of file to be copied
+            :param file_name: file name of file to be copied
             :type: string
             :param srcpath: full path of file to be copied
             :type: string
@@ -46,20 +46,21 @@ class SCPClient:
             fileinfo.st_mtime,
             fileinfo.st_atime,
         )
+        file_name = os.path.basename(srcpath)
         total_bytes_written = 0
-        logger.debug("{}, size {}".format(fd, file_size))
+        logger.debug("{}, size {}".format(file_name, file_size))
         with open(srcpath, "rb") as local_fh:
             while total_bytes_written < file_size:
                 data = local_fh.read(_RECVSZ)
                 rc, bytes_written = self.chan.write(data)
                 total_bytes_written += bytes_written
                 if self._callback:
-                    self._callback(fd, file_size, total_bytes_written)
-            logger.debug("file {} completed".format(fd))
+                    self._callback(file_name, file_size, total_bytes_written)
+            logger.debug("file {} completed".format(file_name))
 
-    def get(self, fd, srcpath, dstpath, timeout=30000):
+    def get(self, srcpath, dstpath, timeout=30000):
         """ copies a file from remote to local host
-            :param fd: file name of file to be copied
+            :param file_name: file name of file to be copied
             :type: string
             :param srcpath: full path of file to be copied
             :type: string
@@ -74,7 +75,8 @@ class SCPClient:
         self.chan = chan[0]
         total_bytes_written = 0
         file_size = chan[1].st_size
-        logger.debug("{}, size {}".format(fd, file_size))
+        file_name = os.path.basename(srcpath)
+        logger.debug("{}, size {}".format(file_name, file_size))
         with open(dstpath, "ab") as local_fh:
             while total_bytes_written < file_size:
                 rc, data = self.chan.read(_RECVSZ)
@@ -85,8 +87,8 @@ class SCPClient:
                 local_fh.write(data)
                 total_bytes_written += rc
                 if self._callback:
-                    self._callback(fd, file_size, total_bytes_written)
-            logger.debug("file {} completed".format(fd))
+                    self._callback(file_name, file_size, total_bytes_written)
+            logger.debug("file {} completed".format(file_name))
 
     def close(self):
         """ terminates the channel
