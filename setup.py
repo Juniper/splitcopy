@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="splitcopy",
-    version='1.0.15.2',
+    version='1.1.0',
     url="https://github.com/Juniper/splitcopy",
     author="Chris Jenn",
     author_email="jnpr-community-netdev@juniper.net",
@@ -14,7 +14,7 @@ setup(
     keywords=['ftp', 'ssh', 'scp', 'transfer'],
     py_modules=['splitcopy'],
     python_requires='>=3.4',
-    install_requires=['junos-eznc>=2.3.0'],
+    install_requires=['paramiko', 'scp'],
     entry_points={
         'console_scripts': [
             'splitcopy=splitcopy.splitcopy:main',
@@ -36,6 +36,7 @@ setup(
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
         'Topic :: System :: Networking',
     ],
 )
