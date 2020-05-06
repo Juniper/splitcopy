@@ -987,9 +987,7 @@ class SplitCopy:
                 fd.write(cmd)
             transport = self.ss.get_transport(self.ss._session)
             with SCPClient(transport, **self.copy_kwargs) as scpclient:
-                scpclient.put(
-                    "split.sh", "{}/split.sh".format(self.remote_tmpdir)
-                )
+                scpclient.put("split.sh", "{}/split.sh".format(self.remote_tmpdir))
 
         result, stdout = self.ss.run(
             "sh {}/split.sh 2>&1".format(self.remote_tmpdir, self.remote_tmpdir)
@@ -1243,8 +1241,8 @@ class SplitCopy:
         if self.copy_proto == "ftp":
             while err_count < 3:
                 try:
-                    with FTP(**self.copy_kwargs) as ftp_proto:
-                        ftp_proto.put(file_name, dstpath)
+                    with FTP(**self.copy_kwargs) as ftp:
+                        ftp.put(file_name, dstpath)
                         break
                 except Exception as err:
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
@@ -1288,12 +1286,11 @@ class SplitCopy:
         """
         err_count = 0
         srcpath = "{}/{}".format(self.remote_tmpdir, file_name)
-        dstpath = "{}/{}".format(self.local_tmpdir, file_name)
         if self.copy_proto == "ftp":
             while err_count < 3:
                 try:
-                    with FTP(**self.copy_kwargs) as ftp_proto:
-                        ftp_proto.get(srcpath, dstpath)
+                    with FTP(**self.copy_kwargs) as ftp:
+                        ftp.get(srcpath, file_name)
                         break
                 except Exception as err:
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
