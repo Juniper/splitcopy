@@ -136,7 +136,7 @@ def main():
                 )
             )
         file_name = os.path.basename(file_path)
-        file_size = os.path.getsize(file_name)
+        file_size = os.path.getsize(file_path)
         logger.debug("src file size is {}".format(file_size))
     else:
         raise SystemExit(
