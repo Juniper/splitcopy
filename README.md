@@ -33,11 +33,17 @@ The script will deactivate these limits so it can proceed, then activate them ag
 `target`     Mandatory  
 `--pwd`      Optional, password  
 `--scp`      Optional, use scp instead of ftp to transfer files  
+`--ssh_key`  Optional, path to private ssh key (only required if not located in ~/.ssh/)  
 `--log`      Optional, enables additional logging, specify a logging level as argument  
 `--noverify` Optional, skips sha1 hash comparison of src and dst file  
 
 The format of source and target arguments match those of the 'scp' cmd.  
 Both accept either a local path, or remote path in format \<user>@\<host>:\<path> or \<host>@\<path>  
+
+Supports using jumphosts via 'ProxyCommand' entries in ~/.ssh/config. Example:  
+Host myserver
+  ProxyCommand ssh myjumphost.mydomain.com -W %h:%p
+
 
 # INSTALLATION
 
