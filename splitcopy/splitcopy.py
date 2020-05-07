@@ -126,7 +126,7 @@ def main():
         file_name = os.path.basename(file_path)
         get = True
     elif os.path.isfile(source):
-        file_path = source
+        file_path = os.path.abspath(os.path.expanduser(source))
         try:
             open(file_path, "rb")
         except PermissionError:
@@ -135,8 +135,8 @@ def main():
                     file_path
                 )
             )
-        file_name = os.path.basename(source)
-        file_size = os.path.getsize(file_path)
+        file_name = os.path.basename(file_path)
+        file_size = os.path.getsize(file_name)
         logger.debug("src file size is {}".format(file_size))
     else:
         raise SystemExit(
