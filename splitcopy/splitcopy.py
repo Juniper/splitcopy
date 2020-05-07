@@ -192,7 +192,7 @@ def main():
                 passwd = getpass.getpass(prompt="Password: ", stream=None)
         except (socket.gaierror, socket.herror):
             raise SystemExit("address or hostname not reachable")
-        except (socket.timeout, ConnectionRefusedError):
+        except (socket.timeout, ConnectionRefusedError, IOError, OSError):
             copy_proto = "scp"
     else:
         copy_proto = "scp"
@@ -242,7 +242,8 @@ def ftp_port_check(host):
     """
     logger.debug("entering ftp_port_check()")
     try:
-        socket.create_connection((host, 21), 10)
+        with socket.create_connection((host, 21), 10) as ftp_sock:
+            pass
     except Exception:
         raise
 
@@ -297,11 +298,10 @@ class SplitCopy:
             "ssh_key": self.ssh_key,
         }
 
-        def handlesigint(sigint, stack):
-            self.close()
+    def handlesigint(self, sigint, stack):
+        self.close()
 
-        signal.signal(signal.SIGINT, handlesigint)
-
+    def connect(self):
         try:
             self.ss = SSHShell(**self.ssh_kwargs)
             self.ss.open()
@@ -328,6 +328,12 @@ class SplitCopy:
             :returns loop_end: time when transfers ended
             :type: datetime object
         """
+        # handle sigint gracefully on *nix, WIN32 is (of course) a basket case
+        signal.signal(signal.SIGINT, self.handlesigint)
+
+        # connect to host
+        self.connect()
+
         # determine remote host os
         self.which_os()
 
@@ -449,6 +455,12 @@ class SplitCopy:
             :returns loop_end: time when transfers ended
             :type: datetime object
         """
+        # handle sigint gracefully on *nix, WIN32 is (of course) a basket case
+        signal.signal(signal.SIGINT, self.handlesigint)
+
+        # connect to host
+        self.connect()
+
         # determine remote host os
         self.which_os()
 
@@ -770,9 +782,7 @@ class SplitCopy:
                 ),
                 timeout=600,
             )
-        except TimeoutError:
-            self.close(err_str="timeout while combining file chunks on remote host")
-        except SSH2Error as err:
+        except Exception as err:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
             self.close(
                 err_str="{} while combining file chunks on remote host: {}".format(
