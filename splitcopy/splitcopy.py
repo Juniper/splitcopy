@@ -1375,13 +1375,13 @@ class SplitCopy:
         config_stanzas = ["groups", "system services"]
         if self.copy_proto == "ftp":
             limits = [
-                "ssh connection-limit",
-                "ssh rate-limit",
-                "ftp connection-limit",
-                "ftp rate-limit",
+                "services ssh connection-limit",
+                "services ssh rate-limit",
+                "services ftp connection-limit",
+                "services ftp rate-limit",
             ]
         else:
-            limits = ["ssh connection-limit", "ssh rate-limit"]
+            limits = ["services ssh connection-limit", "services ssh rate-limit"]
 
         # check for presence of rate/connection limits
         cli_config = ""
@@ -1408,19 +1408,23 @@ class SplitCopy:
         # if limits were configured, deactivate them
         if self.command_list:
             print("protocol rate-limit/connection-limit configuration found")
+            logger.debug(self.command_list)
             result, stdout = self.ss.run(
                 'cli -c "edit;{}commit and-quit"'.format("".join(self.command_list)),
-                exitcode=False,
+                exitcode=False, timeout=60,
             )
-            if re.search(r"commit complete\nExiting configuration mode$", stdout):
+            if re.search(r"commit complete\r\nExiting configuration mode", stdout):
                 print(
-                    "the configuration has been modified. "
-                    "deactivated the limit(s) found"
+                    "the configuration has been modified. deactivated the limit(s) found"
                 )
+                self.ss.run("logger 'splitcopy has deactivated "
+                            "ssh/ftp rate-limit/connection-limit "
+                            "configuration'", exitcode=False,
+                            )
             else:
                 err = (
                     "Error: failed to deactivate {} connection-limit/rate-limit"
-                    "configuration. Cannot proceed".format(self.copy_proto)
+                    "configuration. output was:\n{}".format(self.copy_proto, stdout)
                 )
                 self.close(err_str=err)
         else:
@@ -1434,15 +1438,19 @@ class SplitCopy:
         rollback_cmds = "".join(self.command_list)
         rollback_cmds = re.sub("deactivate", "activate", rollback_cmds)
         result, stdout = self.ss.run(
-            'cli -c "edit;{}commit and-quit"'.format(rollback_cmds), exitcode=False
+            'cli -c "edit;{}commit and-quit"'.format(rollback_cmds), exitcode=False, timeout=60
         )
         # cli always returns true so can't use exitcode
-        if re.search(r"commit complete\nExiting configuration mode$", stdout):
+        if re.search(r"commit complete\r\nExiting configuration mode", stdout):
             print("the configuration changes made have been reverted.")
+            self.ss.run("logger 'splitcopy has activated "
+                        "ssh/ftp rate-limit/connection-limit "
+                        "configuration'", exitcode=False,
+                        )
         else:
             print(
                 "Error: failed to revert the connection-limit/rate-limit"
-                "configuration changes made"
+                "configuration changes made. output was:\n{}".format(stdout)
             )
 
     def remote_cleanup(self, silent=False):
