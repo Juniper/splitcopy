@@ -167,11 +167,11 @@ def main():
             remote_file = remote_path
             remote_path = "{}/{}".format(remote_dir, remote_file)
     elif os.path.isdir(target):
-        local_dir = os.path.abspath(os.path.expanduser(target)))
+        local_dir = os.path.abspath(os.path.expanduser(target))
         local_file = remote_file
     elif os.path.isdir(os.path.dirname(target)):
         # we've been passed in a filename, may not exist yet
-        local_dir = os.path.dirname(os.path.abspath(os.path.expanduser(target))
+        local_dir = os.path.dirname(os.path.abspath(os.path.expanduser(target)))
         if os.path.basename(target) != remote_file:
             # have to honour the change of name
             local_file = os.path.basename(target)
