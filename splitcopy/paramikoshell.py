@@ -61,6 +61,13 @@ class SSHShell:
         """
         self._session = self.session_open()
 
+    def socket_open(self):
+        """ open a socket to remote host
+            :return sock: socket object
+        """
+        sock = socket.create_connection((self.host, 22), 10)
+        return sock
+
     def session_open(self):
         """ opens a paramiko.SSHClient instance
             handles both key and password based authentication
@@ -90,6 +97,15 @@ class SSHShell:
                 self._sock = paramiko.proxy.ProxyCommand(config.get("proxycommand"))
                 kwargs.update({"sock": self._sock})
 
+        if not self._sock:
+            try:
+                self._sock = self.socket_open()
+                kwargs.update({"sock": self._sock})
+            except (socket.gaierror, socket.herror):
+                raise ConnectionError("address or hostname not reachable")
+            except (socket.timeout, ConnectionRefusedError, IOError, OSError):
+                raise ConnectionError("error connecting to remote host on port 22")
+
         agent = paramiko.Agent()
         agent_keys = agent.get_keys()
         logger.debug("ssh agent has {} keys".format(len(agent_keys)))
@@ -115,7 +131,7 @@ class SSHShell:
                     "password": None,
                 }
             )
-            # paramiko is a little broken (see github issue #1664) 
+            # paramiko is a little broken (see github issue #1664)
             # work around by always asking for passphrase here
             # else "SSHException: encountered RSA key, expected OPENSSH key" error
             # when key has passphrase
@@ -125,7 +141,9 @@ class SSHShell:
             if passphrase != "":
                 kwargs.update({"passphrase": passphrase})
         elif len(agent_keys) == 0 and not key_found:
-            print("no ssh keys found, nor ssh agent running, skipping publickey ssh auth")
+            print(
+                "no ssh keys found, nor ssh agent running, skipping publickey ssh auth"
+            )
             kwargs.update({"allow_agent": False, "look_for_keys": False})
             ask_pass = True
 
