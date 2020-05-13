@@ -128,7 +128,6 @@ def main():
         remote_dir = os.path.dirname(remote_path)
         if remote_dir == "" or remote_dir == ".":
             remote_dir = "~"
-            remote_file = remote_path
             remote_path = "{}/{}".format(remote_dir, remote_file)
         get = True
     elif os.path.isfile(source):
@@ -632,15 +631,19 @@ class SplitCopy:
             :return: None
         """
         logger.debug("entering validate_remote_path_get()")
-        if re.match(r'~', self.remote_dir):
+        if re.match(r"~", self.remote_dir):
             result, stdout = self.ss.run("ls -d {}".format(self.remote_dir))
             if result:
                 self.remote_dir = stdout.split("\n")[1].rstrip()
                 self.remote_path = "{}/{}".format(self.remote_dir, self.remote_file)
-            else:
-                self.close(err_str="unable to expand remote path {}".format(
-                    self.remote_path
+                self.logger(
+                    "remote_dir now = {}, remote_path now = {}".format(
+                        self.remote_dir, self.remote_file
                     )
+                )
+            else:
+                self.close(
+                    err_str="unable to expand remote path {}".format(self.remote_path)
                 )
 
     def validate_remote_path_put(self):
@@ -1053,9 +1056,7 @@ class SplitCopy:
             with SCPClient(transport, **self.copy_kwargs) as scpclient:
                 scpclient.put("split.sh", "{}/split.sh".format(self.remote_tmpdir))
 
-        self.ss.run(
-            "sh {}/split.sh".format(self.remote_tmpdir)
-        )
+        self.ss.run("sh {}/split.sh".format(self.remote_tmpdir))
 
     def local_sha_get(self):
         """ generates a sha hash for the combined file on the local host
@@ -1180,7 +1181,9 @@ class SplitCopy:
                     logger.debug("{} file found".format(line))
                     result, stdout = self.ss.run("cat {}".format(line))
                     if result:
-                        self.sha_hash[sha_num] = stdout.split("\n")[1].split()[0].rstrip()
+                        self.sha_hash[sha_num] = (
+                            stdout.split("\n")[1].split()[0].rstrip()
+                        )
                         logger.debug("self.sha_hash[{}] added".format(sha_num))
                     else:
                         logger.debug("unable to read remote sha file {}".format(line))
