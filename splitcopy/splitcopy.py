@@ -126,6 +126,10 @@ def main():
         remote_path = source.split(":")[1]
         remote_file = os.path.basename(remote_path)
         remote_dir = os.path.dirname(remote_path)
+        if remote_dir == "" or remote_dir == ".":
+            remote_dir = "~"
+            remote_file = remote_path
+            remote_path = "{}/{}".format(remote_dir, remote_file)
         get = True
     elif os.path.isfile(source):
         local_path = os.path.abspath(os.path.expanduser(source))
@@ -299,8 +303,9 @@ class SplitCopy:
         self.bsd_version = 0.0
         self.sshd_version = 0.0
         self.sha_bin = None
+        self.sha_len = None
         self.mute = False
-        self.sha_size = None
+        self.sha_hash = {}
         self.ssh_kwargs = {
             "user": self.user,
             "host": self.host,
@@ -347,7 +352,7 @@ class SplitCopy:
         self.which_os()
 
         # ensure dest path is valid
-        self.validate_remote_path()
+        self.validate_remote_path_put()
 
         # check required binaries exist on remote host
         self.req_binaries()
@@ -385,6 +390,8 @@ class SplitCopy:
             for sfile in os.listdir("."):
                 if fnmatch.fnmatch(sfile, "{}*".format(self.local_file)):
                     sfiles.append(sfile)
+            if not len(sfiles):
+                self.close(err_str="file split operation failed")
             logger.debug("# of chunks = {}".format(len(sfiles)))
 
             # end of pre transfer checks, create tmp directory
@@ -473,6 +480,9 @@ class SplitCopy:
         # determine remote host os
         self.which_os()
 
+        # ensure dest path is valid
+        self.validate_remote_path_get()
+
         # begin pre transfer checks, check if remote file exists
         result, stdout = self.ss.run("test -r {}".format(self.remote_path))
         if not result:
@@ -523,6 +533,8 @@ class SplitCopy:
         for sfile in remote_files:
             if fnmatch.fnmatch(sfile, "{}*".format(self.remote_file)):
                 sfiles.append(sfile)
+        if not len(sfiles):
+            self.close(err_str="file split operation failed")
         logger.debug("# of chunks = {}".format(len(sfiles)))
 
         # begin connection/rate limit check and transfer process
@@ -615,11 +627,27 @@ class SplitCopy:
             )
         )
 
-    def validate_remote_path(self):
+    def validate_remote_path_get(self):
+        """ path must be a full path, expand as required
+            :return: None
+        """
+        logger.debug("entering validate_remote_path_get()")
+        if re.match(r'~', self.remote_dir):
+            result, stdout = self.ss.run("ls -d {}".format(self.remote_dir))
+            if result:
+                self.remote_dir = stdout.split("\n")[1].rstrip()
+                self.remote_path = "{}/{}".format(self.remote_dir, self.remote_file)
+            else:
+                self.close(err_str="unable to expand remote path {}".format(
+                    self.remote_path
+                    )
+                )
+
+    def validate_remote_path_put(self):
         """ path provided can be a directory, a new or existing file
             :return: None
         """
-        logger.debug("entering validate_remote_path()")
+        logger.debug("entering validate_remote_path_put()")
         if self.ss.run("test -d {}".format(self.remote_path))[0]:
             # target path provided is a directory
             self.remote_file = self.local_file
@@ -720,26 +748,42 @@ class SplitCopy:
                         )
                     )
 
+    def second_elem(self, elem):
+        """ used for key sort
+            :returns: the 2nd part of an element
+        """
+        return elem[1]
+
     def req_sha_binaries(self):
         """ ensures required binaries for sha hash creation exist on remote host
         :returns None:
         """
         logger.debug("entering req_sha_binaries()")
-        if self.sha_size == 512:
-            sha_bins = ["sha512sum", "sha512", "shasum"]
-        elif self.sha_size == 384:
-            sha_bins = ["sha384sum", "sha384", "shasum"]
-        elif self.sha_size == 256:
-            sha_bins = ["sha256sum", "sha256", "shasum"]
-        elif self.sha_size == 224:
-            sha_bins = ["sha224sum", "sha224", "shasum"]
-        else:
-            sha_bins = ["sha1sum", "sha1", "shasum"]
+        sha_bins = []
+        if self.sha_hash.get(512):
+            bins = [("sha512sum", 512), ("sha512", 512), ("shasum", 512)]
+            sha_bins.extend(bins)
+        if self.sha_hash.get(384):
+            bins = [("sha384sum", 384), ("sha384", 384), ("shasum", 384)]
+            sha_bins.extend(bins)
+        if self.sha_hash.get(256):
+            bins = [("sha256sum", 256), ("sha256", 256), ("shasum", 256)]
+            sha_bins.extend(bins)
+        if self.sha_hash.get(224):
+            bins = [("sha224sum", 224), ("sha224", 224), ("shasum", 224)]
+            sha_bins.extend(bins)
+        if self.sha_hash.get(1):
+            bins = [("sha1sum", 1), ("sha1", 1), ("shasum", 1)]
+            sha_bins.extend(bins)
+
+        sha_bins = sorted(set(sha_bins), reverse=True, key=self.second_elem)
+        logger.debug(sha_bins)
 
         for req_bin in sha_bins:
-            result, stdout = self.ss.run("which {}".format(req_bin))
+            result, stdout = self.ss.run("which {}".format(req_bin[0]))
             if result:
-                self.sha_bin = req_bin
+                self.sha_bin = req_bin[0]
+                self.sha_len = req_bin[1]
                 break
         if not self.sha_bin:
             self.close(
@@ -848,14 +892,8 @@ class SplitCopy:
             self.config_rollback = False
             self.close(err_str=err)
 
-        if self.sha_size == 512 and self.sha_bin == "shasum":
-            cmd = "shasum -a 512"
-        elif self.sha_size == 384 and self.sha_bin == "shasum":
-            cmd = "shasum -a 384"
-        elif self.sha_size == 256 and self.sha_bin == "shasum":
-            cmd = "shasum -a 256"
-        elif self.sha_size == 224 and self.sha_bin == "shasum":
-            cmd = "shasum -a 224"
+        if self.sha_bin == "shasum":
+            cmd = "shasum -a {}".format(self.sha_len)
         else:
             cmd = "{}".format(self.sha_bin)
 
@@ -865,8 +903,10 @@ class SplitCopy:
         if not result:
             print(
                 "remote sha hash generation failed or timed out, "
-                'manually check the output of "{} <file>" and '
-                "compare against {}".format(cmd, self.local_sha)
+                'manually check the output of "{} {}/{}" and '
+                "compare against {}".format(
+                    cmd, self.remote_dir, self.remote_file, self.sha_hash[self.sha_len]
+                )
             )
             return
         if re.match(r"sha.*sum", self.sha_bin):
@@ -874,7 +914,7 @@ class SplitCopy:
         else:
             remote_sha = stdout.split("\n")[1].split()[3].rstrip()
         logger.debug("remote sha = {}".format(remote_sha))
-        if self.local_sha == remote_sha:
+        if self.sha_hash[self.sha_len] == remote_sha:
             print(
                 "local and remote sha hash match\nfile has been "
                 "successfully copied to {}:{}/{}".format(
@@ -1013,14 +1053,9 @@ class SplitCopy:
             with SCPClient(transport, **self.copy_kwargs) as scpclient:
                 scpclient.put("split.sh", "{}/split.sh".format(self.remote_tmpdir))
 
-        result, stdout = self.ss.run(
-            "sh {}/split.sh 2>&1".format(self.remote_tmpdir, self.remote_tmpdir)
+        self.ss.run(
+            "sh {}/split.sh".format(self.remote_tmpdir)
         )
-        if not result:
-            err_str = "remote file split operation failed. cmd output was:\n{}".format(
-                stdout
-            )
-            self.close(err_str)
 
     def local_sha_get(self):
         """ generates a sha hash for the combined file on the local host
@@ -1028,15 +1063,20 @@ class SplitCopy:
         """
         logger.debug("entering local_sha_get()")
         print("generating local sha hash...")
-        if self.sha_size == 512:
+        if self.sha_hash.get(512):
+            sha_idx = 512
             sha = hashlib.sha512()
-        elif self.sha_size == 384:
+        elif self.sha_hash.get(384):
+            sha_idx = 384
             sha = hashlib.sha384()
-        elif self.sha_size == 256:
+        elif self.sha_hash.get(256):
+            sha_idx = 256
             sha = hashlib.sha256()
-        elif self.sha_size == 224:
+        elif self.sha_hash.get(224):
+            sha_idx = 224
             sha = hashlib.sha224()
         else:
+            sha_idx = 1
             sha = hashlib.sha1()
         dst_file = self.local_dir + os.path.sep + self.local_file
         with open(dst_file, "rb") as dst:
@@ -1046,7 +1086,7 @@ class SplitCopy:
                 data = dst.read(_BUF_SIZE_READ)
         local_sha = sha.hexdigest()
         logger.debug("local sha = {}".format(local_sha))
-        if local_sha == self.remote_sha:
+        if local_sha == self.sha_hash.get(sha_idx):
             print(
                 "local and remote sha hash match\nfile has been "
                 "successfully copied to {}{}{}".format(
@@ -1069,27 +1109,27 @@ class SplitCopy:
         """
         file_path = self.local_path
         logger.debug("entering local_sha_put()")
-        if os.path.isfile(file_path + ".sha512"):
-            with open(file_path + ".sha512", "r") as shafile:
-                self.local_sha = shafile.read().split()[0].rstrip()
-                self.sha_size = 512
-        elif os.path.isfile(file_path + ".sha384"):
-            with open(file_path + ".sha384", "r") as shafile:
-                self.local_sha = shafile.read().split()[0].rstrip()
-                self.sha_size = 384
-        elif os.path.isfile(file_path + ".sha256"):
-            with open(file_path + ".sha256", "r") as shafile:
-                self.local_sha = shafile.read().split()[0].rstrip()
-                self.sha_size = 256
-        elif os.path.isfile(file_path + ".sha224"):
-            with open(file_path + ".sha224", "r") as shafile:
-                self.local_sha = shafile.read().split()[0].rstrip()
-                self.sha_size = 224
-        elif os.path.isfile(file_path + ".sha1"):
-            with open(file_path + ".sha1", "r") as shafile:
-                self.local_sha = shafile.read().split()[0].rstrip()
-                self.sha_size = 1
-        else:
+        if os.path.isfile("{}.sha512".format(file_path)):
+            with open("{}.sha512".format(file_path), "r") as shafile:
+                local_sha = shafile.read().split()[0].rstrip()
+                self.sha_hash[512] = local_sha
+        if os.path.isfile("{}.sha384".format(file_path)):
+            with open("{}.sha384".format(file_path), "r") as shafile:
+                local_sha = shafile.read().split()[0].rstrip()
+                self.sha_hash[384] = local_sha
+        if os.path.isfile("{}.sha256".format(file_path)):
+            with open("{}.sha256".format(file_path), "r") as shafile:
+                local_sha = shafile.read().split()[0].rstrip()
+                self.sha_hash[256] = local_sha
+        if os.path.isfile("{}.sha224".format(file_path)):
+            with open("{}.sha224".format(file_path), "r") as shafile:
+                local_sha = shafile.read().split()[0].rstrip()
+                self.sha_hash[224] = local_sha
+        if os.path.isfile("{}.sha1".format(file_path)):
+            with open("{}.sha1".format(file_path), "r") as shafile:
+                local_sha = shafile.read().split()[0].rstrip()
+                self.sha_hash[1] = local_sha
+        if not self.sha_hash:
             print("sha1 not found, generating sha1...")
             sha1 = hashlib.sha1()
             with open(file_path, "rb") as original_file:
@@ -1097,9 +1137,9 @@ class SplitCopy:
                 while data:
                     sha1.update(data)
                     data = original_file.read(_BUF_SIZE_READ)
-            self.local_sha = sha1.hexdigest()
-            self.sha_size = 1
-        logger.debug("local sha hash = {}".format(self.local_sha))
+            local_sha = sha1.hexdigest()
+            self.sha_hash[1] = local_sha
+        logger.debug("local sha hashes = {}".format(self.sha_hash))
         self.req_sha_binaries()
 
     def mkdir_remote(self):
@@ -1124,24 +1164,29 @@ class SplitCopy:
         self.rm_remote_tmp = True
 
     def remote_sha_get(self):
-        """ generates a sha hash for the remote file to be copied
+        """ checks for existence of a sha hash file
+            if none found, generates a sha hash for the remote file to be copied
             :returns None:
         """
         logger.debug("entering remote_sha_get()")
         result, stdout = self.ss.run("ls -1 {}.sha*".format(self.remote_path))
         if result:
-            sha_file = stdout.split("\n")[1].rstrip()
-            logger.debug("{} file found".format(sha_file))
-            self.sha_size = re.search(r"\.([0-9]+)$", sha_file).group[0]
-            logger.debug("self.sha_size = {}".format(self.sha_size))
-            result, stdout = self.ss.run("cat {}".format(sha_file))
-            if result:
-                self.remote_sha = stdout.split("\n")[1].rstrip()
-            else:
-                logger.debug("unable to read remote sha file")
+            lines = stdout.split("\n")
+            for line in lines:
+                line = line.rstrip()
+                match = re.search(r"\.sha([0-9]+)$", line)
+                if match:
+                    sha_num = int(match.group(1))
+                    logger.debug("{} file found".format(line))
+                    result, stdout = self.ss.run("cat {}".format(line))
+                    if result:
+                        self.sha_hash[sha_num] = stdout.split("\n")[1].split()[0].rstrip()
+                        logger.debug("self.sha_hash[{}] added".format(sha_num))
+                    else:
+                        logger.debug("unable to read remote sha file {}".format(line))
 
-        if not self.remote_sha:
-            self.sha_size = 1
+        if not self.sha_hash:
+            self.sha_hash[1] = True
             self.req_sha_binaries()
             print("generating remote sha hash...")
             result, stdout = self.ss.run("{} {}".format(self.sha_bin, self.remote_path))
@@ -1149,10 +1194,10 @@ class SplitCopy:
                 self.close(err_str="failed to generate remote sha1")
 
             if re.match(r"sha.*sum", self.sha_bin):
-                self.remote_sha = stdout.split("\n")[1].split()[0].rstrip()
+                self.sha_hash[1] = stdout.split("\n")[1].split()[0].rstrip()
             else:
-                self.remote_sha = stdout.split("\n")[1].split()[3].rstrip()
-        logger.debug("remote sha = {}".format(self.remote_sha))
+                self.sha_hash[1] = stdout.split("\n")[1].split()[3].rstrip()
+        logger.debug("remote sha hashes = {}".format(self.sha_hash))
 
     def remote_filesize(self):
         """  determines the remote file size in bytes
