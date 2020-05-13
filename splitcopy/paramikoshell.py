@@ -234,14 +234,17 @@ class SSHShell:
             :type: string
         """
         result = False
-        self.write(cmd)
-        stdout = self.stdout_read(timeout)
-
-        if exitcode:
-            self.write("echo $?".format(cmd))
-            rc = self.stdout_read(timeout)
-            if re.search(r"\r\n0\r\n", rc, re.MULTILINE):
+        stdout = None
+        try:
+            self.write(cmd)
+            stdout = self.stdout_read(timeout)
+            if exitcode:
+                self.write("echo $?".format(cmd))
+                rc = self.stdout_read(timeout)
+                if re.search(r"\r\n0\r\n", rc, re.MULTILINE):
+                    result = True
+            elif stdout is not None and stdout != "":
                 result = True
-        elif stdout is not None and stdout != "":
-            result = True
+        except TimeoutError:
+            pass
         return result, stdout
