@@ -13,6 +13,7 @@ try:
 except ImportError:
     raise RuntimeError("Splitcopy requires Python 3.4+")
 import argparse
+import concurrent.futures
 import datetime
 import fnmatch
 import functools
@@ -20,7 +21,6 @@ import getpass
 import glob
 import hashlib
 import logging
-import multiprocessing
 import os
 import re
 import signal
@@ -31,6 +31,7 @@ import tempfile
 import time
 import traceback
 from contextlib import contextmanager
+from math import ceil
 
 # 3rd party
 from scp import SCPClient
@@ -84,7 +85,7 @@ def main():
     args = parser.parse_args()
 
     if not args.log:
-        loglevel = "ERROR"
+        loglevel = "WARNING"
     else:
         loglevel = args.log[0]
 
@@ -143,7 +144,7 @@ def main():
         local_file = os.path.basename(local_path)
         local_dir = os.path.dirname(local_path)
         file_size = os.path.getsize(local_path)
-        logger.debug("src file size is {}".format(file_size))
+        logger.info("src file size is {}".format(file_size))
     else:
         raise SystemExit(
             "specified source is not a valid path to a local "
@@ -206,7 +207,7 @@ def main():
             copy_proto = "scp"
     else:
         copy_proto = "scp"
-    logger.debug("copy_proto == {}".format(copy_proto))
+    logger.info("copy_proto == {}".format(copy_proto))
 
     if args.ssh_key is not None:
         ssh_key = os.path.abspath(args.ssh_key[0])
@@ -229,7 +230,7 @@ def main():
         "get": get,
         "noverify": noverify,
     }
-    logger.debug(kwargs)
+    logger.info(kwargs)
 
     splitcopy = SplitCopy(**kwargs)
 
@@ -252,7 +253,7 @@ def ftp_port_check(host):
         :returns: None
         :raises: any exception
     """
-    logger.debug("entering ftp_port_check()")
+    logger.info("entering ftp_port_check()")
     try:
         with socket.create_connection((host, 21), 10) as ftp_sock:
             pass
@@ -305,6 +306,7 @@ class SplitCopy:
         self.sha_len = None
         self.mute = False
         self.sha_hash = {}
+        self.executor = None
         self.ssh_kwargs = {
             "user": self.user,
             "host": self.host,
@@ -391,7 +393,7 @@ class SplitCopy:
                     sfiles.append(sfile)
             if not len(sfiles):
                 self.close(err_str="file split operation failed")
-            logger.debug("# of chunks = {}".format(len(sfiles)))
+            logger.info("# of chunks = {}".format(len(sfiles)))
 
             # end of pre transfer checks, create tmp directory
             self.mkdir_remote()
@@ -419,7 +421,7 @@ class SplitCopy:
             loop = asyncio.get_event_loop()
             for sfile in sfiles:
                 task = loop.run_in_executor(
-                    None, functools.partial(self.put_files, sfile)
+                    self.executor, functools.partial(self.put_files, sfile)
                 )
                 self.tasks.append(task)
             try:
@@ -487,6 +489,18 @@ class SplitCopy:
         if not result:
             self.close(err_str="file on remote host is not readable - does it exist?")
 
+        # is it a symlink? if so, rewrite remote_path with linked file path
+        result, stdout = self.ss.run("test -L {}".format(self.remote_path))
+        if result:
+            logger.info("file is a symlink")
+            result, stdout = self.ss.run("ls -l {}".format(self.remote_path))
+            if result:
+                self.remote_path = stdout.split()[-2].rstrip()
+                self.remote_dir = os.path.dirname(self.remote_path)
+                self.remote_file = os.path.basename(self.remote_path)
+            else:
+                self.close(err_str="file on remote host is a symlink, failed to retrieve details")
+
         # check required binaries exist on remote host
         self.req_binaries()
 
@@ -534,7 +548,7 @@ class SplitCopy:
                 sfiles.append(sfile)
         if not len(sfiles):
             self.close(err_str="file split operation failed")
-        logger.debug("# of chunks = {}".format(len(sfiles)))
+        logger.info("# of chunks = {}".format(len(sfiles)))
 
         # begin connection/rate limit check and transfer process
         if self.junos or self.evo:
@@ -560,7 +574,7 @@ class SplitCopy:
             self.tasks = []
             for sfile in sfiles:
                 task = loop.run_in_executor(
-                    None, functools.partial(self.get_files, sfile)
+                    self.executor, functools.partial(self.get_files, sfile)
                 )
                 self.tasks.append(task)
             print("starting transfer...")
@@ -609,7 +623,7 @@ class SplitCopy:
             no support for Windows OS running OpenSSH
             :returns None:
         """
-        logger.debug("entering which_os()")
+        logger.info("entering which_os()")
         self.ss.run("start shell", exitcode=False)
         result, stdout = self.ss.run("uname")
         if not result:
@@ -620,7 +634,7 @@ class SplitCopy:
             self.evo = True
         else:
             self.junos_os()
-        logger.debug(
+        logger.info(
             "evo = {}, junos = {}, bsd_version = {}, sshd_version = {}".format(
                 self.evo, self.junos, self.bsd_version, self.sshd_version
             )
@@ -630,13 +644,13 @@ class SplitCopy:
         """ path must be a full path, expand as required
             :return: None
         """
-        logger.debug("entering validate_remote_path_get()")
+        logger.info("entering validate_remote_path_get()")
         if re.match(r"~", self.remote_dir):
             result, stdout = self.ss.run("ls -d {}".format(self.remote_dir))
             if result:
                 self.remote_dir = stdout.split("\n")[1].rstrip()
                 self.remote_path = "{}/{}".format(self.remote_dir, self.remote_file)
-                self.logger(
+                logger.info(
                     "remote_dir now = {}, remote_path now = {}".format(
                         self.remote_dir, self.remote_file
                     )
@@ -650,7 +664,7 @@ class SplitCopy:
         """ path provided can be a directory, a new or existing file
             :return: None
         """
-        logger.debug("entering validate_remote_path_put()")
+        logger.info("entering validate_remote_path_put()")
         if self.ss.run("test -d {}".format(self.remote_path))[0]:
             # target path provided is a directory
             self.remote_file = self.local_file
@@ -667,7 +681,7 @@ class SplitCopy:
                 # target path provided was a full path, file name matches src
                 self.remote_file = self.local_file
             self.remote_dir = os.path.dirname(self.remote_path)
-            logger.debug(
+            logger.info(
                 "self.remote_path = {}, self.remote_dir = {}, self.remote_file = {}".format(
                     self.remote_path, self.remote_dir, self.remote_file
                 )
@@ -684,7 +698,7 @@ class SplitCopy:
             :returns result: True if OS is EVO
             :type: boolean
         """
-        logger.debug("entering evo_os()")
+        logger.info("entering evo_os()")
         result, stdout = self.ss.run("test -e /usr/sbin/evo-pfemand")
         return result
 
@@ -692,7 +706,7 @@ class SplitCopy:
         """ determines if host is JUNOS
             :returns None:
         """
-        logger.debug("entering junos_os()")
+        logger.info("entering junos_os()")
         result, stdout = self.ss.run("uname -i")
         if not result:
             self.close(err_str="failed to determine remote host os")
@@ -712,7 +726,7 @@ class SplitCopy:
         """ determines the BSD version of JUNOS
             :returns None:
         """
-        logger.debug("entering which_bsd()")
+        logger.info("entering which_bsd()")
         result, stdout = self.ss.run("uname -r")
         if not result:
             self.close(err_str="failed to determine remote bsd version")
@@ -723,7 +737,7 @@ class SplitCopy:
         """ determines the OpenSSH daemon version
             :returns None:
         """
-        logger.debug("entering which_sshd()")
+        logger.info("entering which_sshd()")
         result, stdout = self.ss.run("sshd -v", exitcode=False)
         if not re.search(r"OpenSSH_", stdout):
             self.close(err_str="failed to determine remote openssh version")
@@ -735,7 +749,7 @@ class SplitCopy:
         """ ensures required binaries exist on remote host
             :returns None:
         """
-        logger.debug("entering req_binaries()")
+        logger.info("entering req_binaries()")
         if not self.junos and not self.evo:
             if self.get_op:
                 req_bins = ["dd", "ls", "df", "rm"]
@@ -761,7 +775,7 @@ class SplitCopy:
         """ ensures required binaries for sha hash creation exist on remote host
         :returns None:
         """
-        logger.debug("entering req_sha_binaries()")
+        logger.info("entering req_sha_binaries()")
         sha_bins = []
         if self.sha_hash.get(512):
             bins = [("sha512sum", 512), ("sha512", 512), ("shasum", 512)]
@@ -780,7 +794,7 @@ class SplitCopy:
             sha_bins.extend(bins)
 
         sha_bins = sorted(set(sha_bins), reverse=True, key=self.second_elem)
-        logger.debug(sha_bins)
+        logger.info(sha_bins)
 
         for req_bin in sha_bins:
             result, stdout = self.ss.run("which {}".format(req_bin[0]))
@@ -832,7 +846,7 @@ class SplitCopy:
         """ concatenates the file chunks into one file on remote host
             :returns None:
         """
-        logger.debug("entering join_files_remote()")
+        logger.info("entering join_files_remote()")
         print("joining files...")
         result = False
         try:
@@ -863,7 +877,7 @@ class SplitCopy:
         """ concatenates the file chunks into one file on local host
             :returns None:
         """
-        logger.debug("entering join_files_local()")
+        logger.info("entering join_files_local()")
         print("joining files...")
         src_files = glob.glob(self.local_tmpdir + os.path.sep + self.remote_file + "*")
         dst_file = self.local_dir + os.path.sep + self.local_file
@@ -883,7 +897,7 @@ class SplitCopy:
             compares against local sha
             :returns None:
         """
-        logger.debug("entering remote_sha_put()")
+        logger.info("entering remote_sha_put()")
         print("generating remote sha hash...")
         result, stdout = self.ss.run(
             "ls {}/{}".format(self.remote_dir, self.remote_file)
@@ -916,7 +930,7 @@ class SplitCopy:
             remote_sha = stdout.split("\n")[1].split()[0].rstrip()
         else:
             remote_sha = stdout.split("\n")[1].split()[3].rstrip()
-        logger.debug("remote sha = {}".format(remote_sha))
+        logger.info("remote sha = {}".format(remote_sha))
         if self.sha_hash[self.sha_len] == remote_sha:
             print(
                 "local and remote sha hash match\nfile has been "
@@ -938,57 +952,63 @@ class SplitCopy:
             the protocol used to copy, FreeBSD and OpenSSH version
             :returns None:
         """
-        logger.debug("entering file_split_size()")
-        if sys.version_info < (3, 6):
-            # if using python < 3.6 the maximum number of simultaneous transfers is 5.
-            self.split_size = int(divmod(self.file_size, 5)[0])
-            return
+        logger.info("entering file_split_size()")
 
-        cpu_count = 1
         try:
-            cpu_count = multiprocessing.cpu_count()
+            cpu_count = os.cpu_count()
         except NotImplementedError:
-            pass
+            cpu_count = 1
+        max_count = 32
+        if sys.version_info < (3, 5, 3):
+           max_count = 30
+        max_workers = min(max_count, cpu_count * 5)
 
-        # python 3.6+ allows 5 simultaneous transfers per cpu
-        if cpu_count <= 4:
-            ftp_max, scp_max = cpu_count * 5, cpu_count * 5
+        # each uid can have max of 64 processes
+        # modulate worker count to consume no more than 40 pids
+        if self.copy_proto == "ftp":
+            # ftp creates 1 user process per chunk, no modulation required
+            self.split_size = ceil(self.file_size / max_workers)
+        elif max_workers <= 10:
+            # 1 or 2 cpu cores, 5 or 10 workers will create 20-40 pids
+            # no modulation required
+            self.split_size = ceil(self.file_size / max_workers)
         else:
-            # ftp creates 1 user process per chunk
             # scp to FreeBSD 6 based junos creates 3 user processes per chunk
             # scp to FreeBSD 10+ based junos creates 2 user processes per chunk
             # +1 user process if openssh version is >= 7.4
-            # each uid can have max of 64 processes
-            # values here will leave min 19 processes headroom
-            max_pids = 39
-            ftp_max = max_pids
+            max_pids = 40
             if self.sshd_version >= 7.4 and self.bsd_version == 6.0:
-                scp_pids = 4
-            elif self.sshd_version >= 7.4 and self.bsd_version >= 11.0:
-                scp_pids = 3
+                pid_count = 4
+            elif self.sshd_version >= 7.4 and self.bsd_version >= 10.0:
+                pid_count = 3
             elif self.bsd_version == 6.0:
-                scp_pids = 3
+                pid_count = 3
             elif self.bsd_version >= 10.0:
-                scp_pids = 2
+                pid_count = 2
             elif self.evo:
-                scp_pids = 3
+                pid_count = 3
             else:
-                # be conservative
-                scp_pids = 4
-            scp_max = round(max_pids / scp_pids)
+                pid_count = 4
+            max_workers = round(max_pids / pid_count)
+            self.split_size = ceil(self.file_size / max_workers)
 
-        if self.copy_proto == "ftp":
-            self.split_size = int(divmod(self.file_size, ftp_max)[0])
-        else:
-            self.split_size = int(divmod(self.file_size, scp_max)[0])
-        logger.debug("file split size = {}".format(self.split_size))
+        # concurrent.futures.ThreadPoolExecutor can be a limiting factor
+        # if using python < 3.5.3 the default max_workers is 5.
+        # see https://github.com/python/cpython/blob/v3.5.2/Lib/asyncio/base_events.py
+        # hence here we define a custom executor to normalize max_workers across versions
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        logger.info(
+            "max_workers = {}, cpu_count = {}, split_size = {}".format(
+                max_workers, cpu_count, self.split_size
+            )
+        )
 
     def split_file_local(self):
         """ splits file into chunks of size already determined in file_split_size()
             This function emulates GNU split.
             :returns None:
         """
-        logger.debug("entering split_file_local()")
+        logger.info("entering split_file_local()")
         print("splitting file...")
         try:
             total_bytes = 0
@@ -999,7 +1019,7 @@ class SplitCopy:
                     with open(
                         "{}{}{}".format(self.local_file, sfx_1, sfx_2), "wb"
                     ) as chunk:
-                        logger.debug(
+                        logger.info(
                             "writing data to {}{}{}".format(
                                 self.local_file, sfx_1, sfx_2
                             )
@@ -1029,17 +1049,22 @@ class SplitCopy:
         """ splits file on remote host
             :returns None:
         """
-        logger.debug("entering split_file_remote()")
+        logger.info("entering split_file_remote()")
         total_blocks = int(self.file_size / _BUF_SIZE)
         block_size = int(self.split_size / _BUF_SIZE)
+        logger.info("total_blocks = {}, block_size = {}".format(total_blocks, block_size))
         cmd = (
             "size_b={}; size_tb={}; i=0; o=00; "
+            "if [ $size_b -eq 0 ]; then cp {} {}/{}_$o; exit 0; fi; "
             "while [ $i -lt $size_tb ]; do "
             "dd if={} of={}/{}_$o bs={} count=$size_b skip=$i; "
             "i=`expr $i + $size_b`; o=`expr $o + 1`; "
             "if [ $o -lt 10 ]; then o=0$o; fi; done".format(
                 block_size,
                 total_blocks,
+                self.remote_path,
+                self.remote_tmpdir,
+                self.remote_file,
                 self.remote_path,
                 self.remote_tmpdir,
                 self.remote_file,
@@ -1062,7 +1087,7 @@ class SplitCopy:
         """ generates a sha hash for the combined file on the local host
             :returns None:
         """
-        logger.debug("entering local_sha_get()")
+        logger.info("entering local_sha_get()")
         print("generating local sha hash...")
         if self.sha_hash.get(512):
             sha_idx = 512
@@ -1086,7 +1111,7 @@ class SplitCopy:
                 sha.update(data)
                 data = dst.read(_BUF_SIZE_READ)
         local_sha = sha.hexdigest()
-        logger.debug("local sha = {}".format(local_sha))
+        logger.info("local sha = {}".format(local_sha))
         if local_sha == self.sha_hash.get(sha_idx):
             print(
                 "local and remote sha hash match\nfile has been "
@@ -1109,7 +1134,7 @@ class SplitCopy:
             :returns None:
         """
         file_path = self.local_path
-        logger.debug("entering local_sha_put()")
+        logger.info("entering local_sha_put()")
         if os.path.isfile("{}.sha512".format(file_path)):
             with open("{}.sha512".format(file_path), "r") as shafile:
                 local_sha = shafile.read().split()[0].rstrip()
@@ -1140,14 +1165,14 @@ class SplitCopy:
                     data = original_file.read(_BUF_SIZE_READ)
             local_sha = sha1.hexdigest()
             self.sha_hash[1] = local_sha
-        logger.debug("local sha hashes = {}".format(self.sha_hash))
+        logger.info("local sha hashes = {}".format(self.sha_hash))
         self.req_sha_binaries()
 
     def mkdir_remote(self):
         """ creates a tmp directory on the remote host
             :returns None:
         """
-        logger.debug("entering mkdir_remote()")
+        logger.info("entering mkdir_remote()")
         ts = datetime.datetime.strftime(datetime.datetime.now(), "%y%m%d%H%M%S")
         if self.get_op:
             self.remote_tmpdir = "/var/tmp/splitcopy_{}.{}".format(self.remote_file, ts)
@@ -1169,7 +1194,7 @@ class SplitCopy:
             if none found, generates a sha hash for the remote file to be copied
             :returns None:
         """
-        logger.debug("entering remote_sha_get()")
+        logger.info("entering remote_sha_get()")
         result, stdout = self.ss.run("ls -1 {}.sha*".format(self.remote_path))
         if result:
             lines = stdout.split("\n")
@@ -1178,21 +1203,21 @@ class SplitCopy:
                 match = re.search(r"\.sha([0-9]+)$", line)
                 if match:
                     sha_num = int(match.group(1))
-                    logger.debug("{} file found".format(line))
+                    logger.info("{} file found".format(line))
                     result, stdout = self.ss.run("cat {}".format(line))
                     if result:
                         self.sha_hash[sha_num] = (
                             stdout.split("\n")[1].split()[0].rstrip()
                         )
-                        logger.debug("self.sha_hash[{}] added".format(sha_num))
+                        logger.info("self.sha_hash[{}] added".format(sha_num))
                     else:
-                        logger.debug("unable to read remote sha file {}".format(line))
+                        logger.info("unable to read remote sha file {}".format(line))
 
         if not self.sha_hash:
             self.sha_hash[1] = True
             self.req_sha_binaries()
             print("generating remote sha hash...")
-            result, stdout = self.ss.run("{} {}".format(self.sha_bin, self.remote_path))
+            result, stdout = self.ss.run("{} {}".format(self.sha_bin, self.remote_path), timeout=120)
             if not result:
                 self.close(err_str="failed to generate remote sha1")
 
@@ -1200,25 +1225,25 @@ class SplitCopy:
                 self.sha_hash[1] = stdout.split("\n")[1].split()[0].rstrip()
             else:
                 self.sha_hash[1] = stdout.split("\n")[1].split()[3].rstrip()
-        logger.debug("remote sha hashes = {}".format(self.sha_hash))
+        logger.info("remote sha hashes = {}".format(self.sha_hash))
 
     def remote_filesize(self):
         """  determines the remote file size in bytes
             :returns None:
         """
-        logger.debug("entering remote_filesize()")
+        logger.info("entering remote_filesize()")
         result, stdout = self.ss.run("ls -l {}".format(self.remote_path))
         if result:
             self.file_size = int(stdout.split("\n")[1].split()[4])
         else:
             self.close(err_str="cannot determine remote file size")
-        logger.debug("src file size is {}".format(self.file_size))
+        logger.info("src file size is {}".format(self.file_size))
 
     def storage_check_remote(self):
         """ checks whether there is enough storage space on remote node
             :returns None:
         """
-        logger.debug("entering storage_check_remote()")
+        logger.info("entering storage_check_remote()")
         avail_blocks = 0
         print("checking remote storage...")
         if self.get_op:
@@ -1241,7 +1266,7 @@ class SplitCopy:
             self.close(err_str)
 
         avail_bytes = int(avail_blocks) * 1024
-        logger.debug("remote filesystem available bytes is {}".format(avail_bytes))
+        logger.info("remote filesystem available bytes is {}".format(avail_bytes))
         if self.file_size * multiplier > avail_bytes:
             if self.get_op:
                 err_str = (
@@ -1262,11 +1287,11 @@ class SplitCopy:
         """ checks whether there is enough storage space on local node
             :returns None:
         """
-        logger.debug("entering storage_check_local()")
+        logger.info("entering storage_check_local()")
         print("checking local storage...")
         local_tmpdir = tempfile.gettempdir()
         avail_bytes = shutil.disk_usage(local_tmpdir)[2]
-        logger.debug(
+        logger.info(
             "local filesystem {} available bytes is {}".format(
                 local_tmpdir, avail_bytes
             )
@@ -1283,7 +1308,7 @@ class SplitCopy:
 
         if self.get_op:
             avail_bytes = shutil.disk_usage(self.local_dir)[2]
-            logger.debug(
+            logger.info(
                 "local filesystem {} available bytes is {}".format(
                     self.local_dir, avail_bytes
                 )
@@ -1416,7 +1441,7 @@ class SplitCopy:
             :returns None:
         """
         self.local_tmpdir = tempfile.mkdtemp()
-        logger.debug(self.local_tmpdir)
+        logger.info(self.local_tmpdir)
 
         def cleanup():
             """ deletes temp dir
@@ -1432,7 +1457,7 @@ class SplitCopy:
             will be deactivated
             :returns None:
         """
-        logger.debug("entering limit_check()")
+        logger.info("entering limit_check()")
         config_stanzas = ["groups", "system services"]
         if self.copy_proto == "ftp":
             limits = [
@@ -1469,7 +1494,7 @@ class SplitCopy:
         # if limits were configured, deactivate them
         if self.command_list:
             print("protocol rate-limit/connection-limit configuration found")
-            logger.debug(self.command_list)
+            logger.info(self.command_list)
             result, stdout = self.ss.run(
                 'cli -c "edit;{}commit and-quit"'.format("".join(self.command_list)),
                 exitcode=False,
@@ -1498,7 +1523,7 @@ class SplitCopy:
         """ revert config change made to remote host
             :returns None:
         """
-        logger.debug("entering limits_rollback()")
+        logger.info("entering limits_rollback()")
         rollback_cmds = "".join(self.command_list)
         rollback_cmds = re.sub("deactivate", "activate", rollback_cmds)
         result, stdout = self.ss.run(

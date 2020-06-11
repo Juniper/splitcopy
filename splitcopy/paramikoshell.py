@@ -73,7 +73,7 @@ class SSHShell:
             handles both key and password based authentication
             :return: paramiko.SSHClient instance
         """
-        logger.debug("entering session_open()")
+        logger.info("entering session_open()")
         kwargs = {"hostname": self.host, "username": self.user}
         ssh_client = paramiko.SSHClient()
         ssh_client.load_system_host_keys()
@@ -108,7 +108,7 @@ class SSHShell:
 
         agent = paramiko.Agent()
         agent_keys = agent.get_keys()
-        logger.debug("ssh agent has {} keys".format(len(agent_keys)))
+        logger.info("ssh agent has {} keys".format(len(agent_keys)))
 
         if self.passwd is not None:
             kwargs.update(
@@ -209,7 +209,7 @@ class SSHShell:
             :type: string
         """
         self._chan.send("{}\n".format(cmd))
-        logger.debug("sent '{}'".format(cmd))
+        logger.info("sent '{}'".format(cmd))
 
     def close(self):
         """ terminates both the channel (if present) and the underlying session
