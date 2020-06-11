@@ -6,8 +6,6 @@ import socket
 import getpass
 import warnings
 import logging
-import time
-import traceback
 from select import select
 
 # 3rd Party
@@ -15,10 +13,6 @@ import paramiko
 from cryptography import utils
 from paramiko.ssh_exception import (
     SSHException,
-    ChannelException,
-    BadHostKeyException,
-    AuthenticationException,
-    BadAuthenticationType,
     PasswordRequiredException,
 )
 

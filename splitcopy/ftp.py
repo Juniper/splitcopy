@@ -2,7 +2,6 @@
 import ftplib
 import logging
 import os
-import re
 import sys
 
 logger = logging.getLogger(__name__)
