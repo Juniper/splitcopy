@@ -1050,21 +1050,17 @@ class SplitCopy:
             :returns None:
         """
         logger.info("entering split_file_remote()")
-        total_blocks = int(self.file_size / _BUF_SIZE)
-        block_size = int(self.split_size / _BUF_SIZE)
+        total_blocks = ceil(self.file_size / _BUF_SIZE)
+        block_size = ceil(self.split_size / _BUF_SIZE)
         logger.info("total_blocks = {}, block_size = {}".format(total_blocks, block_size))
         cmd = (
             "size_b={}; size_tb={}; i=0; o=00; "
-            "if [ $size_b -eq 0 ]; then cp {} {}/{}_$o; exit 0; fi; "
             "while [ $i -lt $size_tb ]; do "
             "dd if={} of={}/{}_$o bs={} count=$size_b skip=$i; "
             "i=`expr $i + $size_b`; o=`expr $o + 1`; "
             "if [ $o -lt 10 ]; then o=0$o; fi; done".format(
                 block_size,
                 total_blocks,
-                self.remote_path,
-                self.remote_tmpdir,
-                self.remote_file,
                 self.remote_path,
                 self.remote_tmpdir,
                 self.remote_file,
