@@ -53,7 +53,7 @@ Host myserver
 
 # INSTALLATION
 
-Installation requires Python >= 3.4 and associated `pip` tool, Python >= 3.6 is recommended due to improvements in asyncio  
+Installation requires Python >= 3.4 and associated `pip` tool  
 
     python3 -m pip install splitcopy
 
@@ -74,7 +74,7 @@ Upgrading has the same requirements as installation and has the same format with
 ## FTP transfer (default method)
 
 ```
-$ ./splitcopy.py /var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz lab@192.168.1.1:/var/tmp/
+$ splitcopy /var/tmp/jselective-update-ppc-J1.1-14.2R5-S3-J1.1.tgz lab@192.168.1.1:/var/tmp/
 Password:
 checking remote port(s) are open...
 using FTP for file transfer
@@ -96,7 +96,7 @@ total runtime = 0:00:31.520914
 ## SCP transfer
 
 ```
-$ ./splitcopy.py lab@192.168.1.1/var/log/messages /var/tmp/ --scp  
+$ splitcopy lab@192.168.1.1/var/log/messages /var/tmp/ --scp  
 ssh auth succeeded
 checking remote storage...
 checking local storage...
@@ -117,10 +117,8 @@ total runtime = 0:00:44.891370
 ## Notes on using FTP
 
 FTP is the default transfer method.  
-
-The version of Python used has a big impact.  
-If using < 3.6 the maximum number of simultaneous transfers is 5.  
-If using 3.6+ it will allow 5 simultaneous transfers per cpu   
+The processing of each file chunk is performed by a dedicated thread  
+Each cpu core is allowed up to 5 threads, with a system max of 32 threads used  
 
 Using FTP method will generate the following processes on the remote host:
 - for mgmt session: 1x sshd, 1x cli, 1x mgd, 1x csh
@@ -130,14 +128,13 @@ In theory, this could result in the per-user maxproc limit of 64 being exceeded:
 ```
 May  2 04:46:59   /kernel: maxproc limit exceeded by uid 2001, please see tuning(7) and login.conf(5).
 ```
-The script modulates the number of chunks to match the maximum number of simultaneous transfers possible (based on Python version and number of cpus).   
+The script modulates the number of chunks to match the number of threads available   
 The maximum number of user owned processes that could be created is <= 44
 
 ## Notes on using SCP
 
-The version of Python used has a big impact.  
-If using < 3.6 the maximum number of simultaneous transfers is 5.  
-If using 3.6+ it will allow 5 simultaneous transfers per cpu 
+The processing of each file chunk is performed by a dedicated thread  
+Each cpu core is allowed up to 5 threads, with a system max of 32 threads used  
 
 Using SCP method will generate the following processes on the remote host:
 - for mgmt session: 1x sshd, 1x cli, 1x mgd, 1x csh
@@ -167,7 +164,7 @@ This could result in the per-user maxproc limit of 64 being exceeded:
 ```
 May  2 04:46:59   /kernel: maxproc limit exceeded by uid 2001, please see tuning(7) and login.conf(5).
 ```
-To mitigate this, the script modulates the number of chunks to match the maximum number of simultaneous transfers possible (based on Python, OpenSSH, Junos FreeBSD versions and the number of cpu's).  
+To mitigate this, the script modulates the number of chunks to match the maximum number of simultaneous transfers possible (based on OpenSSH, Junos FreeBSD versions and the number of cpu's).  
 The maximum number of user owned processes that could be created is <= 45
 
 
