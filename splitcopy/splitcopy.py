@@ -968,7 +968,7 @@ class SplitCopy:
             cpu_count = 1
         max_count = 32
         if sys.version_info < (3, 5, 3):
-           max_count = 30
+            max_count = 30
         max_workers = min(max_count, cpu_count * 5)
 
         # each uid can have max of 64 processes
@@ -1330,7 +1330,7 @@ class SplitCopy:
     def put_files(self, sfile):
         """ copies files to remote host via ftp or scp
             :param sfile: name and size of the file to copy
-            :type list:
+            :type: list
             :raises TransferError: if file transfer fails 3 times
             :returns None:
         """
@@ -1381,7 +1381,7 @@ class SplitCopy:
     def get_files(self, sfile):
         """ copies files from remote host via ftp or scp
             :param sfile: name and size of the file to copy
-            :type list:
+            :type: list
             :raises TransferError: if file transfer fails 3 times
             :returns None:
         """
@@ -1559,7 +1559,7 @@ class SplitCopy:
     def remote_cleanup(self, silent=False):
         """ delete tmp directory on remote host
             :param silent: determines whether we announce the dir deletion
-            :type bool:
+            :type: bool
             :returns None:
         """
         if not silent:
