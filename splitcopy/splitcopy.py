@@ -41,7 +41,6 @@ from splitcopy.paramikoshell import SSHShell
 from splitcopy.progress import Progress
 from splitcopy.ftp import FTP
 
-_BUF_SIZE_SPLIT = 10240
 _BUF_SIZE_READ = 131072
 _BUF_SIZE = 1024
 
@@ -131,7 +130,7 @@ def main():
             remote_dir = "~"
             remote_path = "{}/{}".format(remote_dir, remote_file)
         if not remote_file:
-            raise SystemExit("src path isn't valid, cannot determine file name")
+            raise SystemExit("src path doesn't specify a file name")
         get = True
     elif os.path.isfile(source):
         local_path = os.path.abspath(os.path.expanduser(source))
@@ -966,10 +965,7 @@ class SplitCopy:
             cpu_count = os.cpu_count()
         except NotImplementedError:
             cpu_count = 1
-        max_count = 32
-        if sys.version_info < (3, 5, 3):
-            max_count = 30
-        max_workers = min(max_count, cpu_count * 5)
+        max_workers = min(32, cpu_count * 5)
 
         # each uid can have max of 64 processes
         # modulate worker count to consume no more than 40 pids
@@ -1003,7 +999,7 @@ class SplitCopy:
         # concurrent.futures.ThreadPoolExecutor can be a limiting factor
         # if using python < 3.5.3 the default max_workers is 5.
         # see https://github.com/python/cpython/blob/v3.5.2/Lib/asyncio/base_events.py
-        # hence here we define a custom executor to normalize max_workers across versions
+        # hence defining a custom executor to normalize max_workers across versions
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
         logger.info(
             "max_workers = {}, cpu_count = {}, split_size = {}".format(
@@ -1032,15 +1028,10 @@ class SplitCopy:
                                 self.local_file, sfx_1, sfx_2
                             )
                         )
-                        chunk_bytes = 0
-                        while chunk_bytes < self.split_size:
-                            data = src.read(_BUF_SIZE_SPLIT)
-                            if data:
-                                chunk.write(data)
-                                chunk_bytes += _BUF_SIZE_SPLIT
-                                total_bytes += _BUF_SIZE_SPLIT
-                            else:
-                                return
+                        src.seek(total_bytes)
+                        data = src.read(self.split_size)
+                        chunk.write(data)
+                        total_bytes += self.split_size
                     if sfx_2 == "z":
                         sfx_1 = "b"
                         sfx_2 = "a"
