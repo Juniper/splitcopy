@@ -130,6 +130,8 @@ def main():
         if remote_dir == "" or remote_dir == ".":
             remote_dir = "~"
             remote_path = "{}/{}".format(remote_dir, remote_file)
+        if not remote_file:
+            raise SystemExit("src path isn't valid, cannot determine file name")
         get = True
     elif os.path.isfile(source):
         local_path = os.path.abspath(os.path.expanduser(source))
@@ -390,7 +392,7 @@ class SplitCopy:
             sfiles = []
             for sfile in os.listdir("."):
                 if fnmatch.fnmatch(sfile, "{}*".format(self.local_file)):
-                    sfiles.append(sfile)
+                    sfiles.append([sfile, os.stat(sfile).st_size])
             if not len(sfiles):
                 self.close(err_str="file split operation failed")
             logger.info("# of chunks = {}".format(len(sfiles)))
@@ -484,23 +486,6 @@ class SplitCopy:
         # ensure dest path is valid
         self.validate_remote_path_get()
 
-        # begin pre transfer checks, check if remote file exists
-        result, stdout = self.ss.run("test -r {}".format(self.remote_path))
-        if not result:
-            self.close(err_str="file on remote host is not readable - does it exist?")
-
-        # is it a symlink? if so, rewrite remote_path with linked file path
-        result, stdout = self.ss.run("test -L {}".format(self.remote_path))
-        if result:
-            logger.info("file is a symlink")
-            result, stdout = self.ss.run("ls -l {}".format(self.remote_path))
-            if result:
-                self.remote_path = stdout.split()[-2].rstrip()
-                self.remote_dir = os.path.dirname(self.remote_path)
-                self.remote_file = os.path.basename(self.remote_path)
-            else:
-                self.close(err_str="file on remote host is a symlink, failed to retrieve details")
-
         # check required binaries exist on remote host
         self.req_binaries()
 
@@ -538,14 +523,15 @@ class SplitCopy:
         self.split_file_remote()
 
         # add chunk names to a list
-        result, stdout = self.ss.run("ls -1 {}/".format(self.remote_tmpdir))
+        result, stdout = self.ss.run("ls -l {}/".format(self.remote_tmpdir))
         if not result:
             self.close(err_str="couldn't get list of files from host")
         remote_files = stdout.split("\r\n")
         sfiles = []
         for sfile in remote_files:
-            if fnmatch.fnmatch(sfile, "{}*".format(self.remote_file)):
-                sfiles.append(sfile)
+            if fnmatch.fnmatch(sfile, "* {}*".format(self.remote_file)):
+                sfile = sfile.split()
+                sfiles.append([sfile[-1], sfile[-5]])
         if not len(sfiles):
             self.close(err_str="file split operation failed")
         logger.info("# of chunks = {}".format(len(sfiles)))
@@ -651,7 +637,7 @@ class SplitCopy:
                 self.remote_dir = stdout.split("\n")[1].rstrip()
                 self.remote_path = "{}/{}".format(self.remote_dir, self.remote_file)
                 logger.info(
-                    "remote_dir now = {}, remote_path now = {}".format(
+                    "remote_dir now = {}, remote_file now = {}".format(
                         self.remote_dir, self.remote_file
                     )
                 )
@@ -659,6 +645,28 @@ class SplitCopy:
                 self.close(
                     err_str="unable to expand remote path {}".format(self.remote_path)
                 )
+
+        # bail if its a directory
+        result, stdout = self.ss.run("test -d {}".format(self.remote_path))
+        if result:
+            self.close(err_str="src path is a directory, not a file")
+
+        # begin pre transfer checks, check if remote file exists
+        result, stdout = self.ss.run("test -r {}".format(self.remote_path))
+        if not result:
+            self.close(err_str="file on remote host is not readable")
+
+        # is it a symlink? if so, rewrite remote_path with linked file path
+        result, stdout = self.ss.run("test -L {}".format(self.remote_path))
+        if result:
+            logger.info("file is a symlink")
+            result, stdout = self.ss.run("ls -l {}".format(self.remote_path))
+            if result:
+                self.remote_path = stdout.split()[-2].rstrip()
+                self.remote_dir = os.path.dirname(self.remote_path)
+                self.remote_file = os.path.basename(self.remote_path)
+            else:
+                self.close(err_str="file on remote host is a symlink, failed to retrieve details")
 
     def validate_remote_path_put(self):
         """ path provided can be a directory, a new or existing file
@@ -1319,15 +1327,18 @@ class SplitCopy:
                 )
                 self.close(err_str)
 
-    def put_files(self, file_name):
+    def put_files(self, sfile):
         """ copies files to remote host via ftp or scp
-            :param file_name: name of the file to copy
-            :type: string
+            :param sfile: name and size of the file to copy
+            :type list:
             :raises TransferError: if file transfer fails 3 times
             :returns None:
         """
         err_count = 0
+        file_name = sfile[0]
+        file_size = sfile[1]
         dstpath = "{}/{}".format(self.remote_tmpdir, file_name)
+        logger.info("{}, size {}".format(file_name, file_size))
         if self.copy_proto == "ftp":
             while err_count < 3:
                 try:
@@ -1367,15 +1378,18 @@ class SplitCopy:
             self.mute = True
             raise TransferError
 
-    def get_files(self, file_name):
+    def get_files(self, sfile):
         """ copies files from remote host via ftp or scp
-            :param file_name: name of the file to copy
-            :type: string
+            :param sfile: name and size of the file to copy
+            :type list:
             :raises TransferError: if file transfer fails 3 times
             :returns None:
         """
         err_count = 0
+        file_name = sfile[0]
+        file_size = sfile[1]
         srcpath = "{}/{}".format(self.remote_tmpdir, file_name)
+        logger.info("{}, size {}".format(file_name, file_size))
         if self.copy_proto == "ftp":
             while err_count < 3:
                 try:

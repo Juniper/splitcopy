@@ -33,10 +33,6 @@ class FTP(ftplib.FTP):
             :param remote_file: full path on server
             :type: string
         """
-        fileinfo = os.stat(local_file)
-        self.file_size = fileinfo.st_size
-        logger.info("{}, size {}".format(local_file, self.file_size))
-
         with open(local_file, "rb") as open_local_file:
             def callback(data):
                 if self.callback:
@@ -58,10 +54,6 @@ class FTP(ftplib.FTP):
             :param local_file:  path to local file
             :type: string
         """
-        self.voidcmd("TYPE I")
-        self.file_size = self.size(remote_file)
-        logger.info("{}, size {}".format(remote_file, self.file_size))
-
         with open(local_file, "wb") as local_fh:
             def callback(data):
                 local_fh.write(data)
