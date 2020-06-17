@@ -17,14 +17,14 @@ class FTP(ftplib.FTP):
             :param kwargs: named arguments
             :type dict:
         """
-        self.host = kwargs.get("host")
-        self.user = kwargs.get("user")
-        self.passwd = kwargs.get("passwd")
+        host = kwargs.get("host")
+        user = kwargs.get("user")
+        passwd = kwargs.get("passwd")
         self.callback = kwargs.get("progress")
         self.header_bytes = 33
         self.sent = 0
         self.file_size = 0
-        ftplib.FTP.__init__(self, self.host, self.user, self.passwd)
+        ftplib.FTP.__init__(self, host=host, user=user, passwd=passwd, timeout=30)
 
     def put(self, local_file, remote_file):
         """ copies file from local host to remote host
