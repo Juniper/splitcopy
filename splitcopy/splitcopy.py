@@ -1501,6 +1501,7 @@ class SplitCopy:
                 exitcode=False,
                 timeout=60,
             )
+            # cli always returns true so can't use exitcode
             if re.search(r"commit complete\r\nExiting configuration mode", stdout):
                 print(
                     "the configuration has been modified. deactivated the limit(s) found"
