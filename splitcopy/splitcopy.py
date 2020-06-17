@@ -665,7 +665,9 @@ class SplitCopy:
                 self.remote_dir = os.path.dirname(self.remote_path)
                 self.remote_file = os.path.basename(self.remote_path)
             else:
-                self.close(err_str="file on remote host is a symlink, failed to retrieve details")
+                self.close(
+                    err_str="file on remote host is a symlink, failed to retrieve details"
+                )
 
     def validate_remote_path_put(self):
         """ path provided can be a directory, a new or existing file
@@ -1051,7 +1053,9 @@ class SplitCopy:
         logger.info("entering split_file_remote()")
         total_blocks = ceil(self.file_size / _BUF_SIZE)
         block_size = ceil(self.split_size / _BUF_SIZE)
-        logger.info("total_blocks = {}, block_size = {}".format(total_blocks, block_size))
+        logger.info(
+            "total_blocks = {}, block_size = {}".format(total_blocks, block_size)
+        )
         cmd = (
             "size_b={}; size_tb={}; i=0; o=00; "
             "while [ $i -lt $size_tb ]; do "
@@ -1212,7 +1216,9 @@ class SplitCopy:
             self.sha_hash[1] = True
             self.req_sha_binaries()
             print("generating remote sha hash...")
-            result, stdout = self.ss.run("{} {}".format(self.sha_bin, self.remote_path), timeout=120)
+            result, stdout = self.ss.run(
+                "{} {}".format(self.sha_bin, self.remote_path), timeout=120
+            )
             if not result:
                 self.close(err_str="failed to generate remote sha1")
 

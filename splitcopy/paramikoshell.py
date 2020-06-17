@@ -11,10 +11,7 @@ from select import select
 # 3rd Party
 import paramiko
 from cryptography import utils
-from paramiko.ssh_exception import (
-    SSHException,
-    PasswordRequiredException,
-)
+from paramiko.ssh_exception import SSHException, PasswordRequiredException
 
 logging.getLogger("paramiko").setLevel(logging.CRITICAL)
 warnings.simplefilter("ignore", utils.CryptographyDeprecationWarning)

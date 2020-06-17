@@ -34,6 +34,7 @@ class FTP(ftplib.FTP):
             :type: string
         """
         with open(local_file, "rb") as open_local_file:
+
             def callback(data):
                 if self.callback:
                     size_data = sys.getsizeof(data) - self.header_bytes
@@ -43,6 +44,7 @@ class FTP(ftplib.FTP):
                         file_size=self.file_size,
                         sent=self.sent,
                     )
+
             self.storbinary(
                 cmd="STOR " + remote_file, fp=open_local_file, callback=callback
             )
@@ -55,6 +57,7 @@ class FTP(ftplib.FTP):
             :type: string
         """
         with open(local_file, "wb") as local_fh:
+
             def callback(data):
                 local_fh.write(data)
                 if self.callback:
@@ -65,4 +68,5 @@ class FTP(ftplib.FTP):
                         file_size=self.file_size,
                         sent=self.sent,
                     )
+
             self.retrbinary("RETR " + remote_file, callback)
