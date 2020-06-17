@@ -228,7 +228,7 @@ class SSHShell:
             :type: string
         """
         result = False
-        stdout = None
+        stdout = ""
         try:
             self.write(cmd)
             stdout = self.stdout_read(timeout)
@@ -237,8 +237,7 @@ class SSHShell:
                 rc = self.stdout_read(timeout)
                 if re.search(r"\r\n0\r\n", rc, re.MULTILINE):
                     result = True
-            elif stdout is not None and stdout != "":
-                result = True
         except TimeoutError:
+            logger.warning("timeout running '{}'".format(cmd))
             pass
         return result, stdout
