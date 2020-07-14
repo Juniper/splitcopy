@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="splitcopy",
-    version='1.1.3',
+    version='1.1.4',
     url="https://github.com/Juniper/splitcopy",
     author="Chris Jenn",
     author_email="jnpr-community-netdev@juniper.net",
