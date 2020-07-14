@@ -35,6 +35,7 @@ from math import ceil
 
 # 3rd party
 from scp import SCPClient
+from paramiko.ssh_exception import SSHException
 
 # local modules
 from splitcopy.paramikoshell import SSHShell
@@ -309,10 +310,11 @@ class SplitCopy:
         self.sha_hash = {}
         self.executor = None
         self.ssh_kwargs = {
-            "user": self.user,
-            "host": self.host,
-            "passwd": self.passwd,
-            "ssh_key": self.ssh_key,
+            "username": self.user,
+            "hostname": self.host,
+            "password": self.passwd,
+            "key_filename": self.ssh_key,
+            "passphrase": None,
         }
 
     def handlesigint(self, sigint, stack):
@@ -321,15 +323,20 @@ class SplitCopy:
     def connect(self):
         try:
             self.ss = SSHShell(**self.ssh_kwargs)
-            self.ss.open()
-            print("ssh auth succeeded")
-            self.ssh_kwargs.update({"passwd": self.ss.passwd})
-            self.ss.channel_open()
+            sock = self.ss.socket_open()
+            self.ss.transport_open(sock)
+            if self.ss.main_thread_auth():
+                self.ss.channel_open()
+                self.ss.invoke_shell()
+                self.ssh_kwargs = self.ss.kwargs
+            else:
+                raise SSHException("authentication failed")
             self.ss.set_keepalive()
             # remove the welcome message from the socket
             self.ss.stdout_read(timeout=30)
         except Exception as err:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
+            self.ss.close()
             raise SystemExit(
                 "{} returned while connecting via ssh: {}".format(
                     err.__class__.__name__, str(err)
@@ -1076,7 +1083,7 @@ class SplitCopy:
         with self.tempdir():
             with open("split.sh", "w") as fd:
                 fd.write(cmd)
-            transport = self.ss.get_transport(self.ss._session)
+            transport = self.ss._transport
             with SCPClient(transport, **self.copy_kwargs) as scpclient:
                 scpclient.put("split.sh", "{}/split.sh".format(self.remote_tmpdir))
 
@@ -1262,7 +1269,7 @@ class SplitCopy:
             split_num = 3
         try:
             avail_blocks = stdout.split("\n")[df_num].split()[split_num].rstrip()
-        except:
+        except Exception:
             err_str = "unable to determine available blocks on remote host"
             self.close(err_str)
 
@@ -1356,7 +1363,11 @@ class SplitCopy:
             while err_count < 3:
                 try:
                     with SSHShell(**self.ssh_kwargs) as ssh:
-                        transport = ssh.get_transport(ssh._session)
+                        sock = ssh.socket_open()
+                        transport = ssh.transport_open(sock)
+                        if not ssh.worker_thread_auth():
+                            ssh.close()
+                            raise SSHException("authentication failed")
                         with SCPClient(transport, **self.copy_kwargs) as scpclient:
                             scpclient.put(file_name, dstpath)
                             break
@@ -1407,7 +1418,11 @@ class SplitCopy:
             while err_count < 3:
                 try:
                     with SSHShell(**self.ssh_kwargs) as ssh:
-                        transport = ssh.get_transport(ssh._session)
+                        sock = ssh.socket_open()
+                        transport = ssh.transport_open(sock)
+                        if not ssh.worker_thread_auth():
+                            ssh.close()
+                            raise SSHException("authentication failed")
                         with SCPClient(transport, **self.copy_kwargs) as scpclient:
                             scpclient.get(srcpath, file_name)
                             break
