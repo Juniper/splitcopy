@@ -178,7 +178,9 @@ class SSHShell:
             self.auth_using_agent()
         elif self.kwargs["key_filename"] is not None:
             self.auth_using_provided_keyfile()
-        elif self.kwargs["password"] is not None:
+        elif self.kwargs.get("keyb"):
+            self.auth_using_keyb()
+        else:
             self.password_auth()
 
         if self.is_authenticated():
@@ -189,36 +191,40 @@ class SSHShell:
             by default will attempt publickey auth, and fall back to passwordauth
             :returns: bool
         """
-        logger.info("entering auth_wrapper()")
+        logger.info("entering main_thread_auth()")
         try:
             self._transport.auth_none(self.kwargs["username"])
         except BadAuthenticationType as e:
             self.kwargs["allowed_types"] = e.allowed_types
         if not self.kwargs["allowed_types"]:
             raise SSHException("no authentication methods possible")
+        logger.info(self.kwargs["allowed_types"])
 
-        if self.kwargs["password"] is not None:
-            self.password_auth()
-        elif self.kwargs["username"] != getpass.getuser():
-            print(
-                "skipping publickey ssh auth as {} != {}".format(
-                    self.username, getpass.getuser()
-                )
-            )
-            if "password" in self.kwargs["allowed_types"]:
-                self.password_auth()
-        elif (
-            "publickey" in self.kwargs["allowed_types"]
-            and self.kwargs["key_filename"] is not None
-        ):
-            if not self.auth_using_provided_keyfile():
-                self.password_auth()
-        elif "publickey" in self.kwargs["allowed_types"]:
-            if not self.auth_using_agent():
-                if not self.auth_using_keyfiles():
-                    self.password_auth()
-        else:
-            self.password_auth()
+        for auth_type in self.kwargs["allowed_types"]:
+            logger.info(f"trying auth method {auth_type}")
+            if auth_type == "publickey":
+                if self.kwargs["username"] != getpass.getuser():
+                    print(
+                        "skipping publickey ssh auth as {} != {}".format(
+                            self.username, getpass.getuser()
+                        )
+                    )
+                    continue
+                if (
+                    self.kwargs["key_filename"] is not None
+                    and self.auth_using_provided_keyfile()
+                ):
+                    break
+                if self.auth_using_agent():
+                    break
+                if self.auth_using_keyfiles():
+                    break
+            elif auth_type == "keyboard-interactive":
+                if self.auth_using_keyb():
+                    break
+            elif auth_type == "password":
+                if self.password_auth():
+                    break
 
         if self.is_authenticated():
             print("ssh authentication succeeded")
@@ -242,18 +248,46 @@ class SSHShell:
             :raises: AuthenticationException if auth fails
             :returns: None
         """
-        if "password" not in self.kwargs["allowed_types"]:
-            raise SSHException("password auth not allowed by server")
-
+        logger.info("entering password_auth()")
+        result = False
         if not self.kwargs["password"]:
             self.kwargs["password"] = self.ask_password()
         try:
             self._transport.auth_password(
                 username=self.kwargs["username"], password=self.kwargs["password"]
             )
+            result = True
         except AuthenticationException:
             print("password authentication failed")
             raise
+        return result
+
+    def auth_using_keyb(self):
+        """ Attempts keyboard-interactive authentication
+        """
+        logger.info("entering auth_using_keyb()")
+        result = False
+        if not self.kwargs["password"]:
+            self.kwargs["password"] = self.ask_password()
+
+        def handler(title, instructions, fields):
+            logger.debug(fields)
+            if len(fields) > 1:
+                raise SSHException("foo keyboard-interactive authentication failed.")
+            if len(fields) == 0:
+                return []
+            return [self.kwargs["password"]]
+
+        try:
+            username = self.kwargs["username"]
+            self._transport.auth_interactive(username, handler)
+            self.kwargs["keyb"] = True
+            result = True
+        except AuthenticationException:
+            logger.debug("".join(traceback.format_exception(*sys.exc_info())))
+            print("keyboard-interactive authentication failed")
+            raise
+        return result
 
     def auth_using_agent(self):
         """ Attempts publickey authentication using keys held by ssh-agent

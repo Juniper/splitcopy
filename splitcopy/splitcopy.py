@@ -136,7 +136,8 @@ def main():
     elif os.path.isfile(source):
         local_path = os.path.abspath(os.path.expanduser(source))
         try:
-            open(local_path, "rb")
+            with open(local_path, "rb"):
+                pass
         except PermissionError:
             raise SystemExit(
                 "source file {} exists but is not readable - cannot proceed".format(
@@ -309,6 +310,7 @@ class SplitCopy:
         self.mute = False
         self.sha_hash = {}
         self.executor = None
+        self.ss = None
         self.ssh_kwargs = {
             "username": self.user,
             "hostname": self.host,
@@ -318,6 +320,7 @@ class SplitCopy:
         }
 
     def handlesigint(self, sigint, stack):
+        logger.debug("signal {} received, stack:\n{}".format(sigint, stack))
         self.close()
 
     def connect(self):
@@ -434,13 +437,9 @@ class SplitCopy:
                 self.tasks.append(task)
             try:
                 loop.run_until_complete(asyncio.gather(*self.tasks))
-            except KeyboardInterrupt:
-                self.mute = True
-                self.close()
             except TransferError:
                 self.close(
-                    err_str="an error occurred while copying the files to the "
-                    "remote host"
+                    err_str="an error occurred while copying the files to the remote host"
                 )
             finally:
                 loop.close()
@@ -572,13 +571,9 @@ class SplitCopy:
             print("starting transfer...")
             try:
                 loop.run_until_complete(asyncio.gather(*self.tasks))
-            except KeyboardInterrupt:
-                self.mute = True
-                self.close()
             except TransferError:
                 self.close(
-                    err_str="an error occurred while copying the files from "
-                    "the remote host"
+                    err_str="an error occurred while copying the files from the remote host"
                 )
             finally:
                 loop.close()
@@ -1021,7 +1016,6 @@ class SplitCopy:
             This function emulates GNU split.
             :returns None:
         """
-        logger.info("entering split_file_local()")
         print("splitting file...")
         try:
             total_bytes = 0
@@ -1270,26 +1264,26 @@ class SplitCopy:
         try:
             avail_blocks = stdout.split("\n")[df_num].split()[split_num].rstrip()
         except Exception:
-            err_str = "unable to determine available blocks on remote host"
-            self.close(err_str)
+            err = "unable to determine available blocks on remote host"
+            self.close(err_str=err)
 
         avail_bytes = int(avail_blocks) * 1024
         logger.info("remote filesystem available bytes is {}".format(avail_bytes))
         if self.file_size * multiplier > avail_bytes:
             if self.get_op:
-                err_str = (
+                err = (
                     "not enough storage on remote host in /var/tmp.\nAvailable bytes "
                     "({}) must be > the original file size ({}) because it has to "
                     "store the file chunks".format(avail_bytes, self.file_size)
                 )
             else:
-                err_str = (
+                err = (
                     "not enough storage on remote host in {}.\nAvailable bytes ({}) "
                     "must be 2x the original file size ({}) because it has to "
                     "store the file chunks and the whole file at the "
                     "same time".format(self.remote_dir, avail_bytes, self.file_size)
                 )
-            self.close(err_str)
+            self.close(err_str=err)
 
     def storage_check_local(self):
         """ checks whether there is enough storage space on local node
@@ -1305,14 +1299,14 @@ class SplitCopy:
             )
         )
         if self.file_size > avail_bytes:
-            err_str = (
+            err = (
                 "not enough storage on local host in temp dir {}.\nAvailable bytes "
                 "({}) must be > the original file size ({}) because it has to "
                 "store the file chunks".format(
                     local_tmpdir, avail_bytes, self.file_size
                 )
             )
-            self.close(err_str)
+            self.close(err_str=err)
 
         if self.get_op:
             avail_bytes = shutil.disk_usage(self.local_dir)[2]
@@ -1322,14 +1316,14 @@ class SplitCopy:
                 )
             )
             if self.file_size > avail_bytes:
-                err_str = (
+                err = (
                     "not enough storage on local host in {}.\nAvailable bytes ({}) "
                     "must be > the original file size ({}) because it has to "
                     "recombine the file chunks into a whole file".format(
                         self.local_dir, avail_bytes, self.file_size
                     )
                 )
-                self.close(err_str)
+                self.close(err_str=err)
 
     def put_files(self, sfile):
         """ copies files to remote host via ftp or scp
