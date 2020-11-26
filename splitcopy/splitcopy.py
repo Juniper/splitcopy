@@ -321,6 +321,7 @@ class SplitCopy:
 
     def handlesigint(self, sigint, stack):
         logger.debug("signal {} received, stack:\n{}".format(sigint, stack))
+        self.mute = True
         self.close()
 
     def connect(self):
