@@ -381,6 +381,9 @@ class SplitCopy:
         # cleanup previous remote tmp directory if found
         self.remote_cleanup(True)
 
+        # determine optimal size for chunks
+        self.file_split_size()
+
         # confirm remote storage is sufficient
         self.storage_check_remote()
 
@@ -390,9 +393,6 @@ class SplitCopy:
         if not self.noverify:
             # get/create sha for local file
             self.local_sha_put()
-
-        # determine optimal size for chunks
-        self.file_split_size()
 
         with self.tempdir():
             # split file into chunks
@@ -405,6 +405,8 @@ class SplitCopy:
                     sfiles.append([sfile, os.stat(sfile).st_size])
             if not len(sfiles):
                 self.close(err_str="file split operation failed")
+            # sort chunks alphabetically
+            sfiles = sorted(sfiles)
             logger.info("# of chunks = {}".format(len(sfiles)))
 
             # end of pre transfer checks, create tmp directory
@@ -450,7 +452,7 @@ class SplitCopy:
         loop_end = datetime.datetime.now()
 
         # combine chunks
-        self.join_files_remote()
+        self.join_files_remote(sfiles)
 
         # remove remote tmp dir
         self.remote_cleanup()
@@ -854,7 +856,7 @@ class SplitCopy:
         else:
             raise SystemExit(1)
 
-    def join_files_remote(self):
+    def join_files_remote(self, sfiles):
         """ concatenates the file chunks into one file on remote host
             :returns None:
         """
@@ -862,13 +864,17 @@ class SplitCopy:
         print("joining files...")
         result = False
         try:
-            # >{} because > {} could be matched as _SHELL_PROMPT
-            result, stdout = self.ss.run(
-                "cat {}/* >{}/{}".format(
-                    self.remote_tmpdir, self.remote_dir, self.remote_file
-                ),
-                timeout=600,
-            )
+            for sfile in sfiles:
+                # >{} because > {} could be matched as _SHELL_PROMPT
+                result, stdout = self.ss.run(
+                    "cat {}/{} >>{}/{}".format(
+                        self.remote_tmpdir, sfile[0], self.remote_dir, self.remote_file
+                    ),
+                    timeout=600,
+                )
+                result, stdout = self.ss.run(
+                    "rm {}/{}".format(self.remote_tmpdir, sfile[0]), timeout=600
+                )
         except Exception as err:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
             self.close(
@@ -1249,12 +1255,7 @@ class SplitCopy:
         logger.info("entering storage_check_remote()")
         avail_blocks = 0
         print("checking remote storage...")
-        if self.get_op:
-            multiplier = 1
-            result, stdout = self.ss.run("df -k {}".format(self.remote_dir))
-        else:
-            multiplier = 2
-            result, stdout = self.ss.run("df -k {}".format(self.remote_dir))
+        result, stdout = self.ss.run("df -k {}".format(self.remote_dir))
         if not result:
             self.close(err_str="failed to determine remote disk space available")
         df_num = len(stdout.split("\n")) - 2
@@ -1270,21 +1271,24 @@ class SplitCopy:
 
         avail_bytes = int(avail_blocks) * 1024
         logger.info("remote filesystem available bytes is {}".format(avail_bytes))
-        if self.file_size * multiplier > avail_bytes:
-            if self.get_op:
+        if self.get_op:
+            if self.file_size > avail_bytes:
                 err = (
                     "not enough storage on remote host in /var/tmp.\nAvailable bytes "
                     "({}) must be > the original file size ({}) because it has to "
                     "store the file chunks".format(avail_bytes, self.file_size)
                 )
-            else:
+                self.close(err_str=err)
+        else:
+            if self.file_size + self.split_size > avail_bytes:
                 err = (
                     "not enough storage on remote host in {}.\nAvailable bytes ({}) "
-                    "must be 2x the original file size ({}) because it has to "
-                    "store the file chunks and the whole file at the "
-                    "same time".format(self.remote_dir, avail_bytes, self.file_size)
+                    "must be > the original file size ({}) + largest chunk size "
+                    "({})".format(
+                        self.remote_dir, avail_bytes, self.file_size, self.split_size
+                    )
                 )
-            self.close(err_str=err)
+                self.close(err_str=err)
 
     def storage_check_local(self):
         """ checks whether there is enough storage space on local node
