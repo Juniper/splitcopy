@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="splitcopy",
-    version='1.1.6',
+    version='1.1.7',
     url="https://github.com/Juniper/splitcopy",
     author="Chris Jenn",
     author_email="jnpr-community-netdev@juniper.net",
@@ -13,7 +13,7 @@ setup(
     packages=find_packages('.'),
     keywords=['ftp', 'ssh', 'scp', 'transfer'],
     py_modules=['splitcopy'],
-    python_requires='>=3.4',
+    python_requires='>=3.6',
     install_requires=['paramiko', 'scp'],
     entry_points={
         'console_scripts': [
@@ -32,11 +32,10 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3 :: Only',
-        'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
         'Topic :: System :: Networking',
     ],
 )
