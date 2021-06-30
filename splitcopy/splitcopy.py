@@ -1088,7 +1088,8 @@ class SplitCopy:
             with SCPClient(transport, **self.copy_kwargs) as scpclient:
                 scpclient.put("split.sh", "{}/split.sh".format(self.remote_tmpdir))
 
-        self.ss.run("sh {}/split.sh".format(self.remote_tmpdir))
+        print("splitting remote file...")
+        self.ss.run("sh {}/split.sh".format(self.remote_tmpdir), timeout=300)
 
     def local_sha_get(self):
         """ generates a sha hash for the combined file on the local host
