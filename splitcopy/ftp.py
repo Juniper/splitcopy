@@ -21,10 +21,19 @@ class FTP(ftplib.FTP):
         user = kwargs.get("user")
         passwd = kwargs.get("passwd")
         self.callback = kwargs.get("progress")
+        timeout = kwargs.get("timeout")
+        if not timeout:
+            timeout = 30
         self.header_bytes = 33
         self.sent = 0
         self.file_size = 0
-        ftplib.FTP.__init__(self, host=host, user=user, passwd=passwd, timeout=30)
+        ftplib.FTP.__init__(self, host=host, user=user, passwd=passwd, timeout=timeout)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_ty, exc_val, exc_tb):
+        self.quit()
 
     def put(self, local_file, remote_file):
         """ copies file from local host to remote host
