@@ -24,6 +24,7 @@ import re
 import signal
 import shutil
 from socket import timeout as socket_timeout
+from socket import gethostbyname, gaierror, create_connection
 import sys
 import tempfile
 import time
@@ -188,6 +189,11 @@ def main():
             "or <host>:<path>"
         )
 
+    try:
+        host = gethostbyname(host)
+    except gaierror:
+        raise SystemExit("hostname resolution failed")
+
     if args.pwd:
         passwd = args.pwd[0]
 
@@ -200,6 +206,16 @@ def main():
         ssh_key = os.path.abspath(args.ssh_key[0])
         if not os.path.isfile(ssh_key):
             raise SystemExit("specified ssh key not found")
+
+    split_timeout = 60
+    if args.split_timeout is not None:
+        try:
+            split_timeout = int(args.split_timeout[0])
+        except ValueError:
+            raise SystemExit("split_timeout must be an integer")
+        if split_timeout < 60:
+            split_timeout = 60
+            print("split_timeout value is < default of 60. setting it to 60")
 
     kwargs = {
         "user": user,
@@ -216,6 +232,7 @@ def main():
         "copy_proto": copy_proto,
         "get": get,
         "noverify": noverify,
+        "split_timeout": split_timeout,
     }
     logger.info(kwargs)
 
@@ -258,6 +275,7 @@ class SplitCopy:
         self.copy_proto = kwargs.get("copy_proto")
         self.get_op = kwargs.get("get")
         self.noverify = kwargs.get("noverify")
+        self.split_timeout = kwargs.get("split_timeout")
         self.command_list = []
         self.rm_remote_tmp = False
         self.config_rollback = True
@@ -329,25 +347,43 @@ class SplitCopy:
             self.copy_proto = "scp"
 
         elif self.copy_proto == "ftp":
-            print("testing FTP authentication...")
-            if self.passwd is None:
-                passwd = getpass.getpass(prompt="FTP login password: ", stream=None)
-            else:
-                passwd = self.passwd
-            result = None
-            try:
-                result = self.ftp_login_check(passwd)
-            except (error_reply, error_temp, error_perm, error_proto) as err:
-                print(f"ftp login check failed, switching to scp for transfer. Error was: {err}")
-            except socket_timeout:
-                print(f"ftp socket timed out, switching to scp for transfer")
+            if self.ftp_port_check():
+                print("testing FTP authentication...")
+                if self.passwd is None:
+                    passwd = getpass.getpass(prompt="FTP login password: ", stream=None)
+                else:
+                    passwd = self.passwd
+                result = None
+                try:
+                    result = self.ftp_login_check(passwd)
+                except (error_reply, error_temp, error_perm, error_proto) as err:
+                    print(f"ftp login check failed, switching to scp for transfer. Error was: {err}")
+                except socket_timeout:
+                    print(f"ftp socket timed out, switching to scp for transfer")
 
-            if result:
-                self.passwd = passwd
+                if result:
+                    self.passwd = passwd
+                else:
+                    self.copy_proto = "scp"
             else:
                 self.copy_proto = "scp"
 
         logger.info(f"copy_proto == {self.copy_proto}")
+
+    def ftp_port_check(self):
+        """ checks ftp port is open
+            :returns: bool
+        """
+        result = False
+        try:
+            with create_connection((self.host, 21), 10) as ftp_sock:
+                result = True
+        except socket_timeout:
+            print(f"ftp socket timed out, switching to scp for transfer")
+        except ConnectionRefusedError:
+            print("ftp connection refused, switching to scp for transfer")
+
+        return result
 
     def ftp_login_check(self, passwd):
         """ checks ftp login works on remote host
