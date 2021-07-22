@@ -83,7 +83,7 @@ def main():
     parser.add_argument(
         "--split_timeout",
         nargs=1,
-        help="time to wait for file split operation to complete, default 60",
+        help="time to wait for file split operation to complete, default 120",
     )
     parser.add_argument("--log", nargs=1, help="log level, eg DEBUG")
     args = parser.parse_args()
@@ -207,15 +207,15 @@ def main():
         if not os.path.isfile(ssh_key):
             raise SystemExit("specified ssh key not found")
 
-    split_timeout = 60
+    split_timeout = 120
     if args.split_timeout is not None:
         try:
             split_timeout = int(args.split_timeout[0])
         except ValueError:
             raise SystemExit("split_timeout must be an integer")
-        if split_timeout < 60:
-            split_timeout = 60
-            print("split_timeout value is < default of 60. setting it to 60")
+        if split_timeout < 120:
+            split_timeout = 120
+            print("split_timeout value is < default of 120. setting it to 120")
 
     kwargs = {
         "user": user,
@@ -334,41 +334,29 @@ class SplitCopy:
                 f"{err.__class__.__name__} returned while connecting via ssh: {str(err)}"
             )
 
-    def which_proto(self):
+    def which_proto(self, copy_proto, passwd):
         """ verify that if FTP is selected as protocol, that authentication works
         """
 
-        # evo doesn't support ftp
-        if self.copy_proto == "ftp" and self.evo:
-            print(
-                "Switching to SCP to transfer files as "
-                "EVO doesn't support ftp currently"
-            )
-            self.copy_proto = "scp"
+        if copy_proto == "ftp" and self.ftp_port_check():
+            print("testing FTP authentication...")
+            if passwd is None:
+                passwd = getpass.getpass(prompt="FTP login password: ", stream=None)
+            result = None
+            try:
+                result = self.ftp_login_check(passwd)
+            except (error_reply, error_temp, error_perm, error_proto) as err:
+                print(f"ftp login check failed, switching to scp for transfer. Error was: {err}")
+            except socket_timeout:
+                print(f"ftp socket timed out, switching to scp for transfer")
 
-        elif self.copy_proto == "ftp":
-            if self.ftp_port_check():
-                print("testing FTP authentication...")
-                if self.passwd is None:
-                    passwd = getpass.getpass(prompt="FTP login password: ", stream=None)
-                else:
-                    passwd = self.passwd
-                result = None
-                try:
-                    result = self.ftp_login_check(passwd)
-                except (error_reply, error_temp, error_perm, error_proto) as err:
-                    print(f"ftp login check failed, switching to scp for transfer. Error was: {err}")
-                except socket_timeout:
-                    print(f"ftp socket timed out, switching to scp for transfer")
+            if not result:
+                copy_proto = "scp"
+        else:
+            copy_proto = "scp"
 
-                if result:
-                    self.passwd = passwd
-                else:
-                    self.copy_proto = "scp"
-            else:
-                self.copy_proto = "scp"
-
-        logger.info(f"copy_proto == {self.copy_proto}")
+        logger.info(f"copy_proto == {copy_proto}")
+        return copy_proto, passwd
 
     def ftp_port_check(self):
         """ checks ftp port is open
@@ -420,7 +408,7 @@ class SplitCopy:
         self.which_os()
 
         # verify which protocol to use
-        self.which_proto()
+        self.copy_proto, self.passwd = self.which_proto(self.copy_proto, self.passwd)
 
         # ensure dest path is valid
         self.validate_remote_path_put()
@@ -548,7 +536,7 @@ class SplitCopy:
         self.which_os()
 
         # verify which protocol to use
-        self.which_proto()
+        self.copy_proto, self.passwd = self.which_proto(self.copy_proto, self.passwd)
 
         # ensure dest path is valid
         self.validate_remote_path_get()
