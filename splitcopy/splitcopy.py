@@ -569,6 +569,9 @@ class SplitCopy:
         # cleanup previous remote tmp directory if found
         self.remote_cleanup(True)
 
+        # delete target file if it already exists
+        self.delete_target_local()
+
         # determine remote file size
         self.remote_filesize()
 
@@ -923,6 +926,14 @@ class SplitCopy:
         result, stdout = self.ss.run(f"test -w {self.remote_dir}/{self.remote_file}")
         if result:
             result, stdout = self.ss.run(f"rm {self.remote_dir}/{self.remote_file}")
+
+    def delete_target_local(self):
+        """
+        deletes the target file if it already exists
+        """
+        file_path = self.local_dir + os.path.sep + self.local_file
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
     def join_files_remote(self, sfiles):
         """
