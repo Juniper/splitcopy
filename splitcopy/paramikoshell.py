@@ -1,3 +1,11 @@
+""" Copyright (c) 2018, Juniper Networks, Inc
+    All rights reserved
+    This SOFTWARE is licensed under the LICENSE provided in the
+    ./LICENCE file. By downloading, installing, copying, or otherwise
+    using the SOFTWARE, you agree to be bound by the terms of that
+    LICENSE.
+"""
+
 # stdlib
 import datetime
 import os
