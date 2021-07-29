@@ -238,7 +238,7 @@ class SSHShell:
             )
             result = True
         except AuthenticationException:
-            print("password authentication failed")
+            logger.info("password authentication failed")
         return result
 
     def auth_using_keyb(self):
@@ -265,7 +265,7 @@ class SSHShell:
             result = True
         except AuthenticationException:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-            print("keyboard-interactive authentication failed")
+            logger.info("keyboard-interactive authentication failed")
         return result
 
     def auth_using_agent(self):
@@ -286,7 +286,7 @@ class SSHShell:
                 result = True
             except SSHException as err:
                 logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-                print(f"{pkey_type} key authentication failed with error: {err}")
+                logger.info(f"{pkey_type} key authentication failed with error: {err}")
         return result
 
     def auth_using_keyfiles(self):
