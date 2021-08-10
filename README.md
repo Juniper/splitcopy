@@ -36,6 +36,8 @@ The script will deactivate these limits so it can proceed, then rollback these c
 `--ssh_key`  Optional, path to private ssh key (only required if not located in ~/.ssh/)  
 `--log`      Optional, enables additional logging, specify a logging level as argument  
 `--noverify` Optional, skips sha1 hash comparison of src and dst file  
+`--split_timeout` Optional, time to wait for remote file split operation to complete, default 120s  
+`--ssh_port` Optional, ssh port number to connect to  
 
 The format of source and target arguments match those of the 'scp' cmd.  
 Both accept either a local path, or a remote path in the format - user@host:path or host@path  
