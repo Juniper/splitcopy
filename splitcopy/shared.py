@@ -51,7 +51,6 @@ class SplitCopyShared:
         self.remote_file = kwargs.get("remote_file")
         self.remote_path = kwargs.get("remote_path")
         self.local_dir = kwargs.get("local_dir")
-        self.copy_proto = kwargs.get("copy_proto")
         self.get_op = kwargs.get("get")
         self.split_timeout = kwargs.get("split_timeout")
         self.command_list = []
@@ -336,7 +335,7 @@ class SplitCopyShared:
         else:
             raise SystemExit(1)
 
-    def file_split_size(self, file_size, sshd_version, bsd_version, evo):
+    def file_split_size(self, file_size, sshd_version, bsd_version, evo, copy_proto):
         """
         The chunk size depends on the python version, cpu count,
         the protocol used to copy, FreeBSD and OpenSSH version
@@ -355,7 +354,7 @@ class SplitCopyShared:
 
         # each uid can have max of 64 processes
         # modulate worker count to consume no more than 40 pids
-        if self.copy_proto == "ftp":
+        if copy_proto == "ftp":
             # ftp creates 1 user process per chunk, no modulation required
             split_size = ceil(file_size / max_workers)
         elif max_workers <= 10:
@@ -403,7 +402,9 @@ class SplitCopyShared:
         if self.get_op:
             remote_tmpdir = f"/var/tmp/splitcopy_{self.remote_file}.{time_stamp}"
         else:
-            remote_tmpdir = f"{self.remote_dir}/splitcopy_{self.remote_file}.{time_stamp}"
+            remote_tmpdir = (
+                f"{self.remote_dir}/splitcopy_{self.remote_file}.{time_stamp}"
+            )
         result, stdout = self.ss.run(f"mkdir -p {remote_tmpdir}")
         if not result:
             err = (
@@ -524,7 +525,7 @@ class SplitCopyShared:
     def return_tmpdir(self):
         return self.local_tmpdir
 
-    def limit_check(self):
+    def limit_check(self, copy_proto):
         """
         Checks the remote hosts /etc/inetd file to determine whether there are any
         ftp or ssh connection/rate limits defined. If found, these configuration lines
@@ -532,39 +533,46 @@ class SplitCopyShared:
         :returns None:
         """
         logger.info("entering limit_check()")
-        config_stanzas = ["groups", "system services"]
-        if self.copy_proto == "ftp":
-            limits = [
-                "services ssh connection-limit",
-                "services ssh rate-limit",
-                "services ftp connection-limit",
-                "services ftp rate-limit",
-            ]
-        else:
-            limits = ["services ssh connection-limit", "services ssh rate-limit"]
+        config_stanzas = ["groups", "system services", "system login"]
+        limits = ["services ssh connection-limit", "services ssh rate-limit"]
+        if copy_proto == "ftp":
+            limits.append("services ftp connection-limit")
+            limits.append("services ftp rate-limit")
+        retry_options = "system login retry-options"
 
         # check for presence of rate/connection limits
         cli_config = ""
-        conf_line = ""
         for stanza in config_stanzas:
             result, stdout = self.ss.run(
                 f'cli -c "show configuration {stanza} | display set | no-more"'
             )
             cli_config += stdout
+        if cli_config:
+            conf_list = cli_config.split("\r\n")
+        else:
+            return None
+
         for limit in limits:
-            if cli_config and re.search(rf"{limit} [0-9]", cli_config) is not None:
-                conf_list = cli_config.split("\r\n")
-                for conf_statement in conf_list:
-                    if re.search(rf"set .* {limit} [0-9]", conf_statement):
-                        conf_line = re.sub(" [0-9]+$", "", conf_statement)
-                        conf_line = re.sub("set", "deactivate", conf_line)
+            if re.search(rf"^set .* {limit} [0-9]", cli_config, re.MULTILINE) is None:
+                continue
+            for conf_statement in conf_list:
+                if re.match(rf"set .* {limit} [0-9]", conf_statement):
+                    conf_line = re.sub(" [0-9]+$", "", conf_statement)
+                    conf_line = re.sub(r"^set", "deactivate", conf_line)
+                    self.command_list.append(f"{conf_line};")
+        if re.search(rf"^set .* {retry_options}", cli_config, re.MULTILINE) is not None:
+            for conf_statement in conf_list:
+                if re.match(rf"set .* {retry_options}", conf_statement):
+                    conf_line = re.match(
+                        rf"(set .* {retry_options})", conf_statement
+                    ).group(1)
+                    conf_line = re.sub(r"^set", "deactivate", conf_line)
+                    if conf_line not in self.command_list:
                         self.command_list.append(f"{conf_line};")
-                    if re.search(rf"deactivate .* {limit}", conf_statement):
-                        self.command_list.remove(f"{conf_line};")
 
         # if limits were configured, deactivate them
         if self.command_list:
-            print("protocol rate-limit/connection-limit configuration found")
+            print("rate-limit/connection-limit/login retry-options configuration found")
             logger.info(self.command_list)
             result, stdout = self.ss.run(
                 f'cli -c "edit;{"".join(self.command_list)}commit and-quit"',
@@ -573,18 +581,15 @@ class SplitCopyShared:
             )
             # cli always returns true so can't use exitcode
             if re.search(r"commit complete\r\nExiting configuration mode", stdout):
-                print(
-                    "the configuration has been modified. deactivated the limit(s) found"
-                )
+                print("configuration has been modified. deactivated the relevant lines")
                 self.ss.run(
-                    "logger 'splitcopy has deactivated "
-                    "ssh/ftp rate-limit/connection-limit "
-                    "configuration'",
+                    "logger 'splitcopy has made the following config changes: "
+                    f"{''.join(self.command_list)}'",
                     exitcode=False,
                 )
             else:
                 err = (
-                    f"Error: failed to deactivate {self.copy_proto} connection-limit/rate-limit"
+                    "Error: failed to deactivate connection-limit/rate-limit/login retry-options"
                     f"configuration. output was:\n{stdout}"
                 )
                 self.close(err_str=err)
@@ -607,17 +612,15 @@ class SplitCopyShared:
         )
         # cli always returns true so can't use exitcode
         if re.search(r"commit complete\r\nExiting configuration mode", stdout):
-            print("the configuration changes made have been reverted.")
+            print("configuration changes made have been reverted")
             self.ss.run(
-                "logger 'splitcopy has activated "
-                "ssh/ftp rate-limit/connection-limit "
-                "configuration'",
+                "logger 'splitcopy has reverted config changes'",
                 exitcode=False,
             )
         else:
             print(
-                "Error: failed to revert the connection-limit/rate-limit"
-                f"configuration changes made. output was:\n{stdout}"
+                "Error: failed to revert the configuration changes. "
+                f"output was:\n{stdout}"
             )
 
     def remote_cleanup(self, remote_dir=None, remote_file=None, silent=False):

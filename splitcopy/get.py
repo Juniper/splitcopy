@@ -118,7 +118,7 @@ class SplitCopyGet:
 
         # determine optimal size for chunks
         split_size, executor = self.scs.file_split_size(
-            file_size, sshd_version, bsd_version, evo
+            file_size, sshd_version, bsd_version, evo, self.copy_proto
         )
 
         # confirm remote storage is sufficient
@@ -160,7 +160,7 @@ class SplitCopyGet:
         # begin connection/rate limit check and transfer process
         command_list = []
         if junos or evo:
-            command_list = self.scs.limit_check()
+            command_list = self.scs.limit_check(self.copy_proto)
 
         if self.copy_proto == "ftp":
             copy_kwargs = {
