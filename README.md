@@ -55,7 +55,7 @@ Host myserver
 
 # INSTALLATION
 
-Installation requires Python >= 3.4 and associated `pip` tool  
+Installation requires Python >= 3.6 and associated `pip` tool  
 
     python3 -m pip install splitcopy
 
