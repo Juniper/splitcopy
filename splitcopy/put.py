@@ -100,6 +100,9 @@ class SplitCopyPut:
         # ensure dest path is valid
         self.validate_remote_path_put()
 
+        # delete target file if it already exists
+        self.delete_target_remote()
+
         # check required binaries exist on remote host
         self.scs.req_binaries(junos=junos, evo=evo)
 
@@ -107,9 +110,6 @@ class SplitCopyPut:
         self.scs.remote_cleanup(
             remote_dir=self.remote_dir, remote_file=self.remote_file, silent=True
         )
-
-        # delete target file if it already exists
-        self.delete_target_remote()
 
         # determine local file size
         file_size = self.determine_local_filesize()
@@ -251,9 +251,12 @@ class SplitCopyPut:
         deletes the target file if it already exists
         """
         logger.info("entering delete_target_remote()")
-        result, stdout = self.ss.run(f"test -w {self.remote_dir}/{self.remote_file}")
+        result, stdout = self.ss.run(f"test -e {self.remote_dir}/{self.remote_file}")
         if result:
-            result, stdout = self.ss.run(f"rm {self.remote_dir}/{self.remote_file}")
+            result, stdout = self.ss.run(f"rm -f {self.remote_dir}/{self.remote_file}")
+            if not result:
+                err_str = "remote file already exists, and could not be deleted"
+                self.scs.close(err_str)
 
     def determine_local_filesize(self):
         """
