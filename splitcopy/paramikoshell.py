@@ -442,6 +442,12 @@ class SSHShell:
         if self._transport is not None:
             self._transport.close()
 
+    def restart_pty(self):
+        if self._chan is not None:
+            self._chan.close()
+        self.channel_open()
+        self.invoke_shell()
+
     def run(self, cmd, timeout=30, exitcode=True):
         """
         sends a cmd to remote host, if exitcode is True will check its exit status
@@ -468,4 +474,5 @@ class SSHShell:
                     result = True
         except TimeoutError:
             logger.warning(f"timeout running '{cmd}'")
+            self.restart_pty()
         return result, stdout
