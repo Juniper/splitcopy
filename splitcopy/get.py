@@ -95,9 +95,7 @@ class SplitCopyGet:
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
 
         # verify which protocol to use
-        self.copy_proto, self.passwd = self.scs.which_proto(
-            self.copy_proto
-        )
+        self.copy_proto, self.passwd = self.scs.which_proto(self.copy_proto)
 
         # ensure dest path is valid
         self.validate_remote_path_get()
@@ -371,19 +369,14 @@ class SplitCopyGet:
             transport = self.ss._transport
             with SCPClient(transport) as scpclient:
                 scpclient.put("split.sh", f"{remote_tmpdir}/split.sh")
-
         print("splitting remote file...")
         result, stdout = self.ss.run(
             f"sh {remote_tmpdir}/split.sh",
             timeout=self.split_timeout,
         )
         if not result:
-            self.scs.close(
-                err_str=(
-                    "failed to split file on remote host. " f"error was:\n{stdout}"
-                ),
-                hard_close=self.hard_close,
-            )
+            err_str = f"failed to split file on remote host, due to error:\n{stdout}"
+            self.scs.close(err_str, hard_close=self.hard_close)
 
     def get_files(self, sfile, remote_tmpdir, copy_kwargs, ssh_kwargs):
         """

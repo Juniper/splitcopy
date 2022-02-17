@@ -59,7 +59,7 @@ def main():
     parser.add_argument(
         "--split_timeout",
         nargs=1,
-        help="time to wait for file split operation to complete, default 120",
+        help="time to wait for remote file split operation to complete, default 120",
     )
     parser.add_argument(
         "--ssh_port",
@@ -198,9 +198,6 @@ def main():
             split_timeout = int(args.split_timeout[0])
         except ValueError:
             raise SystemExit("split_timeout must be an integer")
-        if split_timeout < 120:
-            split_timeout = 120
-            print("split_timeout value is < default of 120. setting it to 120")
 
     kwargs = {
         "user": user,

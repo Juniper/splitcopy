@@ -52,7 +52,6 @@ class SplitCopyShared:
         self.remote_path = kwargs.get("remote_path")
         self.local_dir = kwargs.get("local_dir")
         self.get_op = kwargs.get("get")
-        self.split_timeout = kwargs.get("split_timeout")
         self.command_list = []
         self.rm_remote_tmp = False
         self.local_tmpdir = None
@@ -100,7 +99,7 @@ class SplitCopyShared:
                     f"ftp login failed, switching to scp for transfer. Error was: {err}"
                 )
             except socket_timeout:
-                print(f"ftp auth timed out, switching to scp for transfer")
+                print("ftp auth timed out, switching to scp for transfer")
 
             if not result:
                 copy_proto = "scp"
@@ -122,7 +121,7 @@ class SplitCopyShared:
                 logger.info("ftp port is open")
                 result = True
         except socket_timeout:
-            print(f"ftp socket timed out, switching to scp for transfer")
+            print("ftp socket timed out, switching to scp for transfer")
         except ConnectionRefusedError:
             print("ftp connection refused, switching to scp for transfer")
 

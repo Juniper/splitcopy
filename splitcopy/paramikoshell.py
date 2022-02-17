@@ -473,6 +473,6 @@ class SSHShell:
                 if re.search(r"\r\n0\r\n", rc, re.MULTILINE):
                     result = True
         except TimeoutError:
-            logger.warning(f"timeout running '{cmd}'")
+            stdout = f"timeout running '{cmd}'"
             self.restart_pty()
         return result, stdout

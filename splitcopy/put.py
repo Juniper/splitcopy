@@ -55,7 +55,6 @@ class SplitCopyPut:
         self.copy_proto = kwargs.get("copy_proto")
         self.get_op = kwargs.get("get")
         self.noverify = kwargs.get("noverify")
-        self.split_timeout = kwargs.get("split_timeout")
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
         self.hard_close = False
@@ -93,9 +92,7 @@ class SplitCopyPut:
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
 
         # verify which protocol to use
-        self.copy_proto, self.passwd = self.scs.which_proto(
-            self.copy_proto
-        )
+        self.copy_proto, self.passwd = self.scs.which_proto(self.copy_proto)
 
         # ensure dest path is valid
         self.validate_remote_path_put()
@@ -336,7 +333,7 @@ class SplitCopyPut:
                         sfx_2 = chr(ord(sfx_2) + 1)
         except Exception as err:
             err_str = (
-                "an error occurred while splitting the file, " f"the error was:\n{err}"
+                f"an error occurred while splitting the file, the error was:\n{err}"
             )
             self.scs.close(err_str, hard_close=self.hard_close)
 
