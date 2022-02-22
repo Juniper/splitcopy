@@ -99,7 +99,9 @@ class SSHShell:
         except (socket.gaierror, socket.herror):
             raise ConnectionError("address or hostname not reachable")
         except (socket.timeout, ConnectionRefusedError, IOError, OSError):
-            raise ConnectionError(f"error connecting to remote host on port {self.ssh_port}")
+            raise ConnectionError(
+                f"error connecting to remote host on port {self.ssh_port}"
+            )
         return sock
 
     def get_pkey_from_file(self, pkey_type, pkey_path):
@@ -434,15 +436,34 @@ class SSHShell:
 
     def close(self):
         """
-        terminates both the channel (if present) and the underlying session
+        terminates both the channel (if present) and the underlying transport
         :returns: None
         """
-        if self._chan is not None:
+        self.close_channel()
+        self.close_transport()
+
+    def close_channel(self):
+        """
+        terminates the channel
+        :returns: None
+        """
+        try:
             self._chan.close()
-        if self._transport is not None:
-            self._transport.close()
+        except AttributeError:
+            pass
+
+    def close_transport(self):
+        """
+        terminates the underlying transport
+        :returns: None
+        """
+        self._transport.close()
 
     def restart_pty(self):
+        """
+        closes then re-opens the channel using the existing transport
+        then opens a new pty
+        """
         if self._chan is not None:
             self._chan.close()
         self.channel_open()
