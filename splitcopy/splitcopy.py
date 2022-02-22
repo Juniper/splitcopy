@@ -59,7 +59,7 @@ def main():
     parser.add_argument(
         "--split_timeout",
         nargs=1,
-        help="time to wait for remote file split operation to complete, default 120",
+        help="time to wait for remote file split operation to complete, default 120s",
     )
     parser.add_argument(
         "--ssh_port",
