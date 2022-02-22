@@ -5,8 +5,9 @@ Improves file transfer rates when copying files to/from JUNOS/EVO/\*nix hosts.
 At a minimum, sshd must be running on the remote host.  
 On JUNOS/EVO this requires 'system services ssh' configuration.  
 
-If using ftp to copy files (default) then an ftp daemon must be running on the remote host.   
+If using ftp to copy files then an ftp daemon must be running on the remote host.   
 On JUNOS this requires 'system services ftp' configuration.  
+FTP is the default transfer method due to its lower resource usage and its ability to restart transfers.   
 
 Script overheads include authentication, sha hash generation/comparison, disk space check, file split and join.  
 It can be slower than normal ftp/scp for small files as a result.
@@ -20,6 +21,17 @@ system {
         ssh { # or ftp
             connection-limit 10;
             rate-limit 10;
+        }
+    }
+}
+```
+or system login retry-options:
+
+```
+system {
+    login {
+        retry-options {
+            <..>
         }
     }
 }
