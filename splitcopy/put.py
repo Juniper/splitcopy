@@ -10,6 +10,7 @@
 import asyncio
 import datetime
 import fnmatch
+from ftplib import error_perm, error_proto, error_reply, error_temp
 import functools
 import hashlib
 import logging
@@ -151,16 +152,7 @@ class SplitCopyPut:
             if junos or evo:
                 command_list = self.scs.limit_check(self.copy_proto)
 
-            if self.copy_proto == "ftp":
-                copy_kwargs = {
-                    "progress": Progress(file_size).handle,
-                    "host": self.host,
-                    "user": self.user,
-                    "passwd": self.passwd,
-                }
-            else:
-                copy_kwargs = {"progress": Progress(file_size).handle}
-
+            progress = Progress(file_size, len(sfiles))
             # copy files to remote host
             self.hard_close = True
             loop_start = datetime.datetime.now()
@@ -171,7 +163,11 @@ class SplitCopyPut:
                 task = loop.run_in_executor(
                     executor,
                     functools.partial(
-                        self.put_files, sfile, remote_tmpdir, copy_kwargs, ssh_kwargs
+                        self.put_files,
+                        sfile,
+                        remote_tmpdir,
+                        ssh_kwargs,
+                        progress,
                     ),
                 )
                 tasks.append(task)
@@ -179,7 +175,7 @@ class SplitCopyPut:
                 loop.run_until_complete(asyncio.gather(*tasks))
             except TransferError:
                 self.scs.close(
-                    err_str="an error occurred while copying the files to the remote host",
+                    err_str="\nan error occurred while copying the files to the remote host",
                     hard_close=self.hard_close,
                 )
             finally:
@@ -343,7 +339,7 @@ class SplitCopyPut:
         :returns None:
         """
         logger.info("entering join_files_remote()")
-        print("joining files...")
+        print("joining chunks...")
         result = False
         cmd = ""
         try:
@@ -433,11 +429,17 @@ class SplitCopyPut:
                 hard_close=self.hard_close,
             )
 
-    def put_files(self, sfile, remote_tmpdir, copy_kwargs, ssh_kwargs):
+    def put_files(self, sfile, remote_tmpdir, ssh_kwargs, progress):
         """
         copies files to remote host via ftp or scp
         :param sfile: name and size of the file to copy
         :type: list
+        :param remote_tmpdir: path of the tmp directory on remote host
+        :type: str
+        :param ssh_kwargs: keyword arguments
+        :type dict:
+        :param progress: Progress object
+        :type object:
         :raises TransferError: if file transfer fails 3 times
         :returns None:
         """
@@ -446,24 +448,42 @@ class SplitCopyPut:
         file_size = sfile[1]
         dstpath = f"{remote_tmpdir}/{file_name}"
         logger.info(f"{file_name}, size {file_size}")
-
         if self.copy_proto == "ftp":
             while err_count < 3:
+                if err_count:
+                    print(f"\nretrying {file_name}")
                 try:
-                    with FTP(**copy_kwargs) as ftp:
-                        ftp.put(file_name, dstpath)
-                        break
+                    with FTP(
+                        file_size=file_size,
+                        progress=progress,
+                        host=self.host,
+                        user=self.user,
+                        passwd=self.passwd,
+                    ) as ftp:
+                        restart_marker = None
+                        if err_count:
+                            try:
+                                ftp.sendcmd("TYPE I")
+                                restart_marker = ftp.size(dstpath)
+                            except (error_perm, error_proto, error_reply, error_temp):
+                                pass
+                        if restart_marker is not None:
+                            print(f"\nresuming {file_name} from byte {restart_marker}")
+                        ftp.put(file_name, dstpath, restart_marker)
+                    break
                 except Exception as err:
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        logger.warning(
-                            f"retrying file {file_name} due to {err.__class__.__name__}"
-                            f": {str(err)}"
+                        print(
+                            f"\nchunk {file_name} transfer failed due to "
+                            f"{err.__class__.__name__} {str(err)}"
                         )
                     err_count += 1
                     time.sleep(err_count)
         else:
             while err_count < 3:
+                if err_count:
+                    print(f"\nretrying {file_name}")
                 try:
                     with SSHShell(**ssh_kwargs) as ssh:
                         sock = ssh.socket_open()
@@ -471,15 +491,17 @@ class SplitCopyPut:
                         if not ssh.worker_thread_auth():
                             ssh.close()
                             raise SSHException("authentication failed")
-                        with SCPClient(transport, **copy_kwargs) as scpclient:
+                        with SCPClient(
+                            transport, progress=progress.report_progress
+                        ) as scpclient:
                             scpclient.put(file_name, dstpath)
-                            break
+                    break
                 except Exception as err:
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        logger.warning(
-                            f"retrying file {file_name} due to {err.__class__.__name__}"
-                            f": {str(err)}"
+                        print(
+                            f"\nchunk {file_name} transfer failed due to "
+                            "{err.__class__.__name__} {str(err)}"
                         )
                     err_count += 1
                     time.sleep(err_count)

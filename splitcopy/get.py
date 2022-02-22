@@ -147,7 +147,7 @@ class SplitCopyGet:
         for sfile in remote_files:
             if fnmatch.fnmatch(sfile, f"* {self.remote_file}*"):
                 sfile = sfile.split()
-                sfiles.append([sfile[-1], sfile[-5]])
+                sfiles.append([sfile[-1], int(sfile[-5])])
         if not sfiles:
             self.scs.close(
                 err_str="file split operation failed",
@@ -160,16 +160,7 @@ class SplitCopyGet:
         if junos or evo:
             command_list = self.scs.limit_check(self.copy_proto)
 
-        if self.copy_proto == "ftp":
-            copy_kwargs = {
-                "progress": Progress(file_size).handle,
-                "host": self.host,
-                "user": self.user,
-                "passwd": self.passwd,
-            }
-        else:
-            copy_kwargs = {"progress": Progress(file_size).handle}
-
+        progress = Progress(file_size, len(sfiles))
         with self.scs.tempdir():
             # copy files from remote host
             self.hard_close = True
@@ -183,8 +174,8 @@ class SplitCopyGet:
                         self.get_files,
                         sfile,
                         remote_tmpdir,
-                        copy_kwargs,
                         ssh_kwargs,
+                        progress,
                     ),
                 )
                 tasks.append(task)
@@ -378,11 +369,17 @@ class SplitCopyGet:
             err_str = f"failed to split file on remote host, due to error:\n{stdout}"
             self.scs.close(err_str, hard_close=self.hard_close)
 
-    def get_files(self, sfile, remote_tmpdir, copy_kwargs, ssh_kwargs):
+    def get_files(self, sfile, remote_tmpdir, ssh_kwargs, progress):
         """
         copies files from remote host via ftp or scp
         :param sfile: name and size of the file to copy
         :type: list
+        :param remote_tmpdir: path of the tmp directory on remote host
+        :type: str
+        :param ssh_kwargs: keyword arguments
+        :type dict:
+        :param progress: Progress object
+        :type object:
         :raises TransferError: if file transfer fails 3 times
         :returns None:
         """
@@ -393,21 +390,39 @@ class SplitCopyGet:
         logger.info(f"{file_name}, size {file_size}")
         if self.copy_proto == "ftp":
             while err_count < 3:
+                if err_count:
+                    print(f"\nretrying {file_name}")
                 try:
-                    with FTP(**copy_kwargs) as ftp:
-                        ftp.get(srcpath, file_name)
-                        break
+                    with FTP(
+                        file_size=file_size,
+                        progress=progress,
+                        host=self.host,
+                        user=self.user,
+                        passwd=self.passwd,
+                    ) as ftp:
+                        restart_marker = None
+                        if err_count:
+                            try:
+                                restart_marker = os.stat(file_name).st_size
+                            except FileNotFoundError:
+                                pass
+                        if restart_marker:
+                            print(f"\nresuming {file_name} from byte {restart_marker}")
+                        ftp.get(srcpath, file_name, restart_marker)
+                    break
                 except Exception as err:
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        logger.warning(
-                            f"retrying file {file_name} due to {err.__class__.__name__}"
-                            f": {str(err)}"
+                        print(
+                            f"\nchunk {file_name} transfer failed due to "
+                            f"{err.__class__.__name__} {str(err)}"
                         )
                     err_count += 1
                     time.sleep(err_count)
         else:
             while err_count < 3:
+                if err_count:
+                    print(f"\nretrying {file_name}")
                 try:
                     with SSHShell(**ssh_kwargs) as ssh:
                         sock = ssh.socket_open()
@@ -415,15 +430,17 @@ class SplitCopyGet:
                         if not ssh.worker_thread_auth():
                             ssh.close()
                             raise SSHException("authentication failed")
-                        with SCPClient(transport, **copy_kwargs) as scpclient:
+                        with SCPClient(
+                            transport, progress=progress.report_progress
+                        ) as scpclient:
                             scpclient.get(srcpath, file_name)
-                            break
+                    break
                 except Exception as err:
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        logger.warning(
-                            f"retrying file {file_name} due to {err.__class__.__name__}"
-                            f": {str(err)}"
+                        print(
+                            f"\nchunk {file_name} transfer failed due to "
+                            f"{err.__class__.__name__} {str(err)}"
                         )
                     err_count += 1
                     time.sleep(err_count)
@@ -438,7 +455,7 @@ class SplitCopyGet:
         :returns None:
         """
         logger.info("entering join_files_local()")
-        print("joining files...")
+        print("joining chunks...")
         local_tmpdir = self.scs.return_tmpdir()
         src_files = glob.glob(local_tmpdir + os.path.sep + self.remote_file + "*")
         dst_file = self.local_dir + os.path.sep + self.local_file
