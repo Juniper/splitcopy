@@ -31,6 +31,7 @@ from splitcopy.progress import Progress
 from splitcopy.ftp import FTP
 from splitcopy.shared import SplitCopyShared
 
+
 logger = logging.getLogger(__name__)
 
 _BUF_SIZE_READ = 131072
@@ -450,8 +451,6 @@ class SplitCopyPut:
         logger.info(f"{file_name}, size {file_size}")
         if self.copy_proto == "ftp":
             while err_count < 3:
-                if err_count:
-                    print(f"\nretrying {file_name}")
                 try:
                     with FTP(
                         file_size=file_size,
@@ -472,38 +471,47 @@ class SplitCopyPut:
                         ftp.put(file_name, dstpath, restart_marker)
                     break
                 except Exception as err:
+                    err_count += 1
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        print(
-                            f"\nchunk {file_name} transfer failed due to "
-                            f"{err.__class__.__name__} {str(err)}"
-                        )
+                        if err_count < 3:
+                            print(
+                                f"\nchunk {file_name} transfer failed due to "
+                                f"{err.__class__.__name__} {str(err)}, retrying"
+                            )
+                        else:
+                            print(
+                                f"\nchunk {file_name} transfer failed due to "
+                                f"{err.__class__.__name__} {str(err)}"
+                            )
                     err_count += 1
                     time.sleep(err_count)
         else:
             while err_count < 3:
-                if err_count:
-                    print(f"\nretrying {file_name}")
                 try:
                     with SSHShell(**ssh_kwargs) as ssh:
-                        sock = ssh.socket_open()
-                        transport = ssh.transport_open(sock)
                         if not ssh.worker_thread_auth():
                             ssh.close()
                             raise SSHException("authentication failed")
                         with SCPClient(
-                            transport, progress=progress.report_progress
+                            ssh._transport, progress=progress.report_progress
                         ) as scpclient:
                             scpclient.put(file_name, dstpath)
                     break
                 except Exception as err:
+                    err_count += 1
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        print(
-                            f"\nchunk {file_name} transfer failed due to "
-                            "{err.__class__.__name__} {str(err)}"
-                        )
-                    err_count += 1
+                        if err_count < 3:
+                            print(
+                                f"\nchunk {file_name} transfer failed due to "
+                                f"{err.__class__.__name__} {str(err)}, retrying"
+                            )
+                        else:
+                            print(
+                                f"\nchunk {file_name} transfer failed due to "
+                                f"{err.__class__.__name__} {str(err)}"
+                            )
                     time.sleep(err_count)
 
         if err_count == 3:
