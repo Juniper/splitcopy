@@ -58,7 +58,7 @@ class SplitCopyGet:
         self.get_op = kwargs.get("get")
         self.noverify = kwargs.get("noverify")
         self.split_timeout = kwargs.get("split_timeout")
-        self.ss = None
+        self.sshshell = None
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
         self.hard_close = False
@@ -89,7 +89,7 @@ class SplitCopyGet:
         signal.signal(signal.SIGINT, self.handlesigint)
 
         # connect to host
-        self.ss, ssh_kwargs = self.scs.connect(**ssh_kwargs)
+        self.sshshell, ssh_kwargs = self.scs.connect(**ssh_kwargs)
 
         # determine remote host os
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
@@ -136,7 +136,7 @@ class SplitCopyGet:
         self.split_file_remote(file_size, split_size, remote_tmpdir)
 
         # add chunk names to a list
-        result, stdout = self.ss.run(f"ls -l {remote_tmpdir}/")
+        result, stdout = self.sshshell.run(f"ls -l {remote_tmpdir}/")
         if not result:
             self.scs.close(
                 err_str="couldn't get list of files from host",
@@ -212,7 +212,7 @@ class SplitCopyGet:
             # generate a sha hash for the combined file, compare to hash of src
             self.local_sha_get(sha_hash)
 
-        self.ss.close()
+        self.sshshell.close()
         return loop_start, loop_end
 
     def validate_remote_path_get(self):
@@ -222,7 +222,7 @@ class SplitCopyGet:
         """
         logger.info("entering validate_remote_path_get()")
         if re.match(r"~", self.remote_dir):
-            result, stdout = self.ss.run(f"ls -d {self.remote_dir}")
+            result, stdout = self.sshshell.run(f"ls -d {self.remote_dir}")
             if result:
                 self.remote_dir = stdout.split("\n")[1].rstrip()
                 self.remote_path = f"{self.remote_dir}/{self.remote_file}"
@@ -236,7 +236,7 @@ class SplitCopyGet:
                 )
 
         # bail if its a directory
-        result, stdout = self.ss.run(f"test -d {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -d {self.remote_path}")
         if result:
             self.scs.close(
                 err_str="src path is a directory, not a file",
@@ -244,7 +244,7 @@ class SplitCopyGet:
             )
 
         # check if remote file exists
-        result, stdout = self.ss.run(f"test -e {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -e {self.remote_path}")
         if not result:
             self.scs.close(
                 err_str="file on remote host doesn't exist",
@@ -252,7 +252,7 @@ class SplitCopyGet:
             )
 
         # check if its readable
-        result, stdout = self.ss.run(f"test -r {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -r {self.remote_path}")
         if not result:
             self.scs.close(
                 err_str="file on remote host is not readable",
@@ -260,10 +260,10 @@ class SplitCopyGet:
             )
 
         # is it a symlink? if so, rewrite remote_path with linked file path
-        result, stdout = self.ss.run(f"test -L {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -L {self.remote_path}")
         if result:
             logger.info("file is a symlink")
-            result, stdout = self.ss.run(f"ls -l {self.remote_path}")
+            result, stdout = self.sshshell.run(f"ls -l {self.remote_path}")
             if result:
                 self.remote_path = stdout.split()[-2].rstrip()
                 self.remote_dir = os.path.dirname(self.remote_path)
@@ -288,7 +288,7 @@ class SplitCopyGet:
         :returns None:
         """
         logger.info("entering remote_filesize()")
-        result, stdout = self.ss.run(f"ls -l {self.remote_path}")
+        result, stdout = self.sshshell.run(f"ls -l {self.remote_path}")
         if result:
             file_size = int(stdout.split("\n")[1].split()[4])
         else:
@@ -307,7 +307,7 @@ class SplitCopyGet:
         """
         logger.info("entering remote_sha_get()")
         sha_hash = {}
-        result, stdout = self.ss.run(f"ls -1 {self.remote_path}.sha*")
+        result, stdout = self.sshshell.run(f"ls -1 {self.remote_path}.sha*")
         if result:
             lines = stdout.split("\n")
             for line in lines:
@@ -316,7 +316,7 @@ class SplitCopyGet:
                 if match:
                     sha_num = int(match.group(1))
                     logger.info(f"{line} file found")
-                    result, stdout = self.ss.run(f"cat {line}")
+                    result, stdout = self.sshshell.run(f"cat {line}")
                     if result:
                         sha_hash[sha_num] = stdout.split("\n")[1].split()[0].rstrip()
                         logger.info(f"sha_hash[{sha_num}] added")
@@ -327,7 +327,7 @@ class SplitCopyGet:
             sha_hash[1] = True
             sha_bin, sha_len = self.scs.req_sha_binaries(sha_hash)
             print("generating remote sha hash...")
-            result, stdout = self.ss.run(f"{sha_bin} {self.remote_path}", timeout=120)
+            result, stdout = self.sshshell.run(f"{sha_bin} {self.remote_path}", timeout=120)
             if not result:
                 self.scs.close(
                     err_str="failed to generate remote sha1",
@@ -365,11 +365,11 @@ class SplitCopyGet:
         with self.scs.tempdir():
             with open("split.sh", "w") as fd:
                 fd.write(cmd)
-            transport = self.ss._transport
+            transport = self.sshshell._transport
             with SCPClient(transport) as scpclient:
                 scpclient.put("split.sh", f"{remote_tmpdir}/split.sh")
         print("splitting remote file...")
-        result, stdout = self.ss.run(
+        result, stdout = self.sshshell.run(
             f"sh {remote_tmpdir}/split.sh",
             timeout=self.split_timeout,
         )

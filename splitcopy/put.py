@@ -60,7 +60,7 @@ class SplitCopyPut:
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
         self.hard_close = False
-        self.ss = None
+        self.sshshell = None
 
     def handlesigint(self, sigint, stack):
         logger.debug(f"signal {sigint} received, stack:\n{stack}")
@@ -88,7 +88,7 @@ class SplitCopyPut:
         signal.signal(signal.SIGINT, self.handlesigint)
 
         # connect to host
-        self.ss, ssh_kwargs = self.scs.connect(**ssh_kwargs)
+        self.sshshell, ssh_kwargs = self.scs.connect(**ssh_kwargs)
 
         # determine remote host os
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
@@ -205,7 +205,7 @@ class SplitCopyPut:
             # generate a sha hash for the combined file, compare to hash of src
             self.remote_sha_put(sha_bin, sha_len, sha_hash)
 
-        self.ss.close()
+        self.sshshell.close()
         return loop_start, loop_end
 
     def validate_remote_path_put(self):
@@ -214,13 +214,13 @@ class SplitCopyPut:
         :return: None
         """
         logger.info("entering validate_remote_path_put()")
-        if self.ss.run(f"test -d {self.remote_path}")[0]:
+        if self.sshshell.run(f"test -d {self.remote_path}")[0]:
             # target path provided is a directory
             self.remote_file = self.local_file
             self.remote_dir = self.remote_path.rstrip("/")
         elif (
-            self.ss.run(f"test -f {self.remote_path}")[0]
-            or self.ss.run(f"test -d {os.path.dirname(self.remote_path)}")[0]
+            self.sshshell.run(f"test -f {self.remote_path}")[0]
+            or self.sshshell.run(f"test -d {os.path.dirname(self.remote_path)}")[0]
         ):
             if os.path.basename(self.remote_path) != self.local_file:
                 # target path provided was a full path, file name does not match src
@@ -245,9 +245,9 @@ class SplitCopyPut:
         deletes the target file if it already exists
         """
         logger.info("entering delete_target_remote()")
-        result, stdout = self.ss.run(f"test -e {self.remote_dir}/{self.remote_file}")
+        result, stdout = self.sshshell.run(f"test -e {self.remote_dir}/{self.remote_file}")
         if result:
-            result, stdout = self.ss.run(f"rm -f {self.remote_dir}/{self.remote_file}")
+            result, stdout = self.sshshell.run(f"rm -f {self.remote_dir}/{self.remote_file}")
             if not result:
                 err_str = "remote file already exists, and could not be deleted"
                 self.scs.close(err_str)
@@ -355,10 +355,10 @@ class SplitCopyPut:
             with self.scs.tempdir():
                 with open("join.sh", "w") as fd:
                     fd.write(cmd)
-                transport = self.ss._transport
+                transport = self.sshshell._transport
                 with SCPClient(transport) as scpclient:
                     scpclient.put("join.sh", f"{remote_tmpdir}/join.sh")
-            result, stdout = self.ss.run(f"sh {remote_tmpdir}/join.sh", timeout=600)
+            result, stdout = self.sshshell.run(f"sh {remote_tmpdir}/join.sh", timeout=600)
         except Exception as err:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
             self.scs.close(
@@ -385,7 +385,7 @@ class SplitCopyPut:
         """
         logger.info("entering remote_sha_put()")
         print("generating remote sha hash...")
-        result, stdout = self.ss.run(f"ls {self.remote_dir}/{self.remote_file}")
+        result, stdout = self.sshshell.run(f"ls {self.remote_dir}/{self.remote_file}")
         if not result:
             err = f"file {self.host}:{self.remote_dir}/{self.remote_file} not found! please retry"
             self.scs.close(
@@ -399,7 +399,7 @@ class SplitCopyPut:
         else:
             cmd = f"{sha_bin}"
 
-        result, stdout = self.ss.run(
+        result, stdout = self.sshshell.run(
             f"{cmd} {self.remote_dir}/{self.remote_file}", timeout=300
         )
         if not result:
