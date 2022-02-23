@@ -61,8 +61,6 @@ class SplitCopyShared:
     def connect(self, **ssh_kwargs):
         try:
             self.ss = SSHShell(**ssh_kwargs)
-            sock = self.ss.socket_open()
-            self.ss.transport_open(sock)
             if self.ss.main_thread_auth():
                 self.ss.channel_open()
                 self.ss.invoke_shell()
@@ -320,7 +318,7 @@ class SplitCopyShared:
             self.remote_cleanup()
         if config_rollback and self.command_list:
             self.limits_rollback()
-        print("closing device connection")
+        print("\rclosing device connection             ")
         self.ss.close()
         if hard_close:
             try:
@@ -634,7 +632,7 @@ class SplitCopyShared:
         if remote_file:
             self.remote_file = remote_file
         if not silent:
-            print("deleting remote tmp directory...")
+            print("\rdeleting remote tmp directory...")
         if self.remote_tmpdir is None:
             if self.get_op:
                 self.ss.run(f"rm -rf /var/tmp/splitcopy_{self.remote_file}.*")
