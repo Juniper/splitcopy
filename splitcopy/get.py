@@ -244,6 +244,14 @@ class SplitCopyGet:
             )
 
         # check if remote file exists
+        result, stdout = self.ss.run(f"test -e {self.remote_path}")
+        if not result:
+            self.scs.close(
+                err_str="file on remote host doesn't exist",
+                hard_close=self.hard_close,
+            )
+
+        # check if its readable
         result, stdout = self.ss.run(f"test -r {self.remote_path}")
         if not result:
             self.scs.close(
@@ -390,8 +398,6 @@ class SplitCopyGet:
         logger.info(f"{file_name}, size {file_size}")
         if self.copy_proto == "ftp":
             while err_count < 3:
-                if err_count:
-                    print(f"\nretrying {file_name}")
                 try:
                     with FTP(
                         file_size=file_size,
@@ -411,38 +417,50 @@ class SplitCopyGet:
                         ftp.get(srcpath, file_name, restart_marker)
                     break
                 except Exception as err:
+                    err_count += 1
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        print(
-                            f"\nchunk {file_name} transfer failed due to "
-                            f"{err.__class__.__name__} {str(err)}"
-                        )
-                    err_count += 1
+                        if err_count < 3:
+                            print(
+                                f"\nchunk {file_name} transfer failed due to "
+                                f"{err.__class__.__name__} {str(err)}, retrying"
+                            )
+                        else:
+                            print(
+                                f"\nchunk {file_name} transfer failed due to "
+                                f"{err.__class__.__name__} {str(err)}"
+                            )
                     time.sleep(err_count)
         else:
             while err_count < 3:
-                if err_count:
-                    print(f"\nretrying {file_name}")
                 try:
                     with SSHShell(**ssh_kwargs) as ssh:
-                        sock = ssh.socket_open()
-                        transport = ssh.transport_open(sock)
                         if not ssh.worker_thread_auth():
                             ssh.close()
                             raise SSHException("authentication failed")
                         with SCPClient(
-                            transport, progress=progress.report_progress
+                            ssh._transport, progress=progress.report_progress
                         ) as scpclient:
                             scpclient.get(srcpath, file_name)
+                        # hack. at times, a FIN wasn't being sent resulting in sshd (notty)
+                        # processes being left in ESTABLISHED state on server.
+                        # adding sleep here appears to prevent this
+                        time.sleep(1)
                     break
                 except Exception as err:
+                    err_count += 1
                     logger.debug("".join(traceback.format_exception(*sys.exc_info())))
                     if not self.mute:
-                        print(
-                            f"\nchunk {file_name} transfer failed due to "
-                            f"{err.__class__.__name__} {str(err)}"
-                        )
-                    err_count += 1
+                        if err_count < 3:
+                            print(
+                                f"\nchunk {file_name} transfer failed due to "
+                                f"{err.__class__.__name__} {str(err)}, retrying"
+                            )
+                        else:
+                            print(
+                                f"\nchunk {file_name} transfer failed due to "
+                                f"{err.__class__.__name__} {str(err)}"
+                            )
                     time.sleep(err_count)
 
         if err_count == 3:
