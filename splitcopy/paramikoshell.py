@@ -50,6 +50,8 @@ class SSHShell:
         self.ssh_port = self.kwargs.get("ssh_port")
         self._chan = None
         self._transport = None
+        self.socket_open()
+        self.transport_open()
 
     def __enter__(self):
         return self
@@ -60,14 +62,12 @@ class SSHShell:
     def socket_open(self):
         """
         wrapper around proxy or direct methods
-        :returns: sock
-        :type: object
+        :returns None:
         """
         logger.info("entering socket_open()")
-        sock = self.socket_proxy()
-        if not sock:
-            sock = self.socket_direct()
-        return sock
+        self.socket = self.socket_proxy()
+        if not self.socket:
+            self.socket = self.socket_direct()
 
     def socket_proxy(self):
         """
@@ -94,6 +94,7 @@ class SSHShell:
         :type: socket object
         """
         logger.info("entering socket_direct()")
+        sock = None
         try:
             sock = socket.create_connection((self.hostname, self.ssh_port), 10)
         except (socket.gaierror, socket.herror):
@@ -134,16 +135,13 @@ class SSHShell:
             )
         return pkey
 
-    def transport_open(self, sock):
+    def transport_open(self):
         """
         opens a transport to the host
-        :param: sock
-        :type: either a socket object, or if a proxy is used, a subprocess
-        :returns: paramiko Transport instance
+        :returns: None
         """
-        self._transport = paramiko.Transport(sock)
+        self._transport = paramiko.Transport(self.socket)
         self._transport.start_client()
-        return self._transport
 
     def worker_thread_auth(self):
         """
