@@ -78,7 +78,7 @@ class SplitCopyShared:
             raise SystemExit(
                 f"{err.__class__.__name__} returned while connecting via ssh: {str(err)}"
             )
-        return self.ss, ssh_kwargs
+        return self.sshshell, ssh_kwargs
 
     def which_proto(self, copy_proto):
         """
