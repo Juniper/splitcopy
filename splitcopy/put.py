@@ -31,7 +31,6 @@ from splitcopy.progress import Progress
 from splitcopy.ftp import FTP
 from splitcopy.shared import SplitCopyShared
 
-
 logger = logging.getLogger(__name__)
 
 _BUF_SIZE_READ = 131072
@@ -57,14 +56,20 @@ class SplitCopyPut:
         self.copy_proto = kwargs.get("copy_proto")
         self.get_op = kwargs.get("get")
         self.noverify = kwargs.get("noverify")
+        self.nocurses = kwargs.get("nocurses")
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
         self.hard_close = False
         self.sshshell = None
+        self.progress = None
 
     def handlesigint(self, sigint, stack):
         logger.debug(f"signal {sigint} received, stack:\n{stack}")
         self.mute = True
+        try:
+            self.progress.abandon_curses()
+        except AttributeError:
+            pass
         self.scs.close(hard_close=self.hard_close)
 
     def put(self):
@@ -152,12 +157,11 @@ class SplitCopyPut:
             command_list = []
             if junos or evo:
                 command_list = self.scs.limit_check(self.copy_proto)
-
-            progress = Progress(file_size, len(sfiles))
+            print("starting transfer...")
+            self.progress = Progress(file_size, sfiles, self.nocurses)
             # copy files to remote host
             self.hard_close = True
             loop_start = datetime.datetime.now()
-            print("starting transfer...")
             loop = asyncio.get_event_loop()
             tasks = []
             for sfile in sfiles:
@@ -168,13 +172,13 @@ class SplitCopyPut:
                         sfile,
                         remote_tmpdir,
                         ssh_kwargs,
-                        progress,
                     ),
                 )
                 tasks.append(task)
             try:
                 loop.run_until_complete(asyncio.gather(*tasks))
             except TransferError:
+                self.progress.abandon_curses()
                 self.scs.close(
                     err_str="\nan error occurred while copying the files to the remote host",
                     hard_close=self.hard_close,
@@ -182,6 +186,7 @@ class SplitCopyPut:
             finally:
                 loop.close()
                 self.hard_close = False
+                self.progress.abandon_curses()
 
         print("\ntransfer complete")
         loop_end = datetime.datetime.now()
@@ -245,9 +250,13 @@ class SplitCopyPut:
         deletes the target file if it already exists
         """
         logger.info("entering delete_target_remote()")
-        result, stdout = self.sshshell.run(f"test -e {self.remote_dir}/{self.remote_file}")
+        result, stdout = self.sshshell.run(
+            f"test -e {self.remote_dir}/{self.remote_file}"
+        )
         if result:
-            result, stdout = self.sshshell.run(f"rm -f {self.remote_dir}/{self.remote_file}")
+            result, stdout = self.sshshell.run(
+                f"rm -f {self.remote_dir}/{self.remote_file}"
+            )
             if not result:
                 err_str = "remote file already exists, and could not be deleted"
                 self.scs.close(err_str)
@@ -358,7 +367,9 @@ class SplitCopyPut:
                 transport = self.sshshell._transport
                 with SCPClient(transport) as scpclient:
                     scpclient.put("join.sh", f"{remote_tmpdir}/join.sh")
-            result, stdout = self.sshshell.run(f"sh {remote_tmpdir}/join.sh", timeout=600)
+            result, stdout = self.sshshell.run(
+                f"sh {remote_tmpdir}/join.sh", timeout=600
+            )
         except Exception as err:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
             self.scs.close(
@@ -381,6 +392,12 @@ class SplitCopyPut:
         """
         creates a sha hash for the newly combined file on the remote host
         compares against local sha
+        :param sha_bin:
+        :type string:
+        :param sha_len:
+        :type int:
+        :param sha_hash:
+        :type hash:
         :returns None:
         """
         logger.info("entering remote_sha_put()")
@@ -409,10 +426,18 @@ class SplitCopyPut:
                 f"compare against {sha_hash[sha_len]}"
             )
             return
-        if re.match(r"sha.*sum", sha_bin):
-            remote_sha = stdout.split("\n")[1].split()[0].rstrip()
-        else:
-            remote_sha = stdout.split("\n")[1].split()[3].rstrip()
+        for line in stdout.splitlines():
+            try:
+                remote_sha = re.search(r"([0-9a-f]{40,})", line).group(1)
+                break
+            except AttributeError:
+                pass
+        if not remote_sha:
+            self.scs.close(
+                err_str="failed to obtain remote sha hash to compare against",
+                config_rollback=False,
+                hard_close=self.hard_close,
+            )
         logger.info(f"remote sha = {remote_sha}")
         if sha_hash[sha_len] == remote_sha:
             print(
@@ -430,7 +455,7 @@ class SplitCopyPut:
                 hard_close=self.hard_close,
             )
 
-    def put_files(self, sfile, remote_tmpdir, ssh_kwargs, progress):
+    def put_files(self, sfile, remote_tmpdir, ssh_kwargs):
         """
         copies files to remote host via ftp or scp
         :param sfile: name and size of the file to copy
@@ -439,8 +464,6 @@ class SplitCopyPut:
         :type: str
         :param ssh_kwargs: keyword arguments
         :type dict:
-        :param progress: Progress object
-        :type object:
         :raises TransferError: if file transfer fails 3 times
         :returns None:
         """
@@ -454,7 +477,7 @@ class SplitCopyPut:
                 try:
                     with FTP(
                         file_size=file_size,
-                        progress=progress,
+                        progress=self.progress,
                         host=self.host,
                         user=self.user,
                         passwd=self.passwd,
@@ -467,7 +490,9 @@ class SplitCopyPut:
                             except (error_perm, error_proto, error_reply, error_temp):
                                 pass
                         if restart_marker is not None:
-                            print(f"\nresuming {file_name} from byte {restart_marker}")
+                            print(
+                                f"\n\rresuming {file_name} from byte {restart_marker}"
+                            )
                         ftp.put(file_name, dstpath, restart_marker)
                     break
                 except Exception as err:
@@ -494,7 +519,7 @@ class SplitCopyPut:
                             ssh.close()
                             raise SSHException("authentication failed")
                         with SCPClient(
-                            ssh._transport, progress=progress.report_progress
+                            ssh._transport, progress=self.progress.report_progress
                         ) as scpclient:
                             scpclient.put(file_name, dstpath)
                     break

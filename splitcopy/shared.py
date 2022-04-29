@@ -262,12 +262,17 @@ class SplitCopyShared:
     def req_sha_binaries(self, sha_hash):
         """
         ensures required binaries for sha hash creation exist on remote host
-        :returns None:
+        :param sha_hash:
+        :type hash:
+        :returns sha_bin:
+        :type string:
+        :returns sha_len:
+        :type int:
         """
         logger.info("entering req_sha_binaries()")
         sha_bins = []
-        sha_bin = None
-        sha_len = None
+        sha_bin = ""
+        sha_len = 0
         if sha_hash.get(512):
             bins = [("sha512sum", 512), ("sha512", 512), ("shasum", 512)]
             sha_bins.extend(bins)
@@ -321,6 +326,10 @@ class SplitCopyShared:
             self.limits_rollback()
         print("\rclosing device connection             ")
         self.sshshell.close()
+        try:
+            self.progress.abandon_curses()
+        except AttributeError:
+            pass
         if hard_close:
             try:
                 shutil.rmtree(self.local_tmpdir)
@@ -638,7 +647,9 @@ class SplitCopyShared:
             if self.get_op:
                 self.sshshell.run(f"rm -rf /var/tmp/splitcopy_{self.remote_file}.*")
             else:
-                self.sshshell.run(f"rm -rf {self.remote_dir}/splitcopy_{self.remote_file}.*")
+                self.sshshell.run(
+                    f"rm -rf {self.remote_dir}/splitcopy_{self.remote_file}.*"
+                )
         else:
             result, stdout = self.sshshell.run(f"rm -rf {self.remote_tmpdir}")
             if not result and not silent:

@@ -66,6 +66,7 @@ def main():
         nargs=1,
         help="ssh port number to connect to",
     )
+    parser.add_argument("--nocurses", action="store_true", help="disable curses output")
     parser.add_argument("--log", nargs=1, help="log level, eg DEBUG")
     args = parser.parse_args()
 
@@ -95,6 +96,7 @@ def main():
     copy_proto = None
     get = False
     noverify = args.noverify
+    nocurses = args.nocurses
     source = args.source
     target = args.target
 
@@ -215,6 +217,7 @@ def main():
         "get": get,
         "noverify": noverify,
         "split_timeout": split_timeout,
+        "nocurses": nocurses,
     }
     logger.info(kwargs)
 
