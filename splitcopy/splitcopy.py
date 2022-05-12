@@ -96,11 +96,24 @@ def main():
     copy_proto = None
     get = False
     noverify = args.noverify
-    nocurses = args.nocurses
     source = args.source
     target = args.target
+    use_curses = True
+    if args.nocurses:
+        use_curses = False
 
-    if re.search(r".*:", source):
+    if os.path.isfile(source):
+        local_path = os.path.abspath(os.path.expanduser(source))
+        try:
+            with open(local_path, "rb"):
+                pass
+        except PermissionError:
+            raise SystemExit(
+                f"source file {local_path} exists but is not readable - cannot proceed"
+            )
+        local_file = os.path.basename(local_path)
+        local_dir = os.path.dirname(local_path)
+    elif re.search(r".*:", source):
         if re.search(r"@", source):
             user = source.split("@")[0]
             host = source.split("@")[1]
@@ -117,17 +130,6 @@ def main():
         if not remote_file:
             raise SystemExit("src path doesn't specify a file name")
         get = True
-    elif os.path.isfile(source):
-        local_path = os.path.abspath(os.path.expanduser(source))
-        try:
-            with open(local_path, "rb"):
-                pass
-        except PermissionError:
-            raise SystemExit(
-                f"source file {local_path} exists but is not readable - cannot proceed"
-            )
-        local_file = os.path.basename(local_path)
-        local_dir = os.path.dirname(local_path)
     else:
         raise SystemExit(
             "specified source is not a valid path to a local "
@@ -135,7 +137,18 @@ def main():
             "or <host>:<path>"
         )
 
-    if re.search(r".*:", target):
+    if os.path.isdir(target):
+        local_dir = os.path.abspath(os.path.expanduser(target))
+        local_file = remote_file
+    elif os.path.isdir(os.path.dirname(target)):
+        # we've been passed in a filename, may not exist yet
+        local_dir = os.path.dirname(os.path.abspath(os.path.expanduser(target)))
+        if os.path.basename(target) != remote_file:
+            # have to honour the change of name
+            local_file = os.path.basename(target)
+        else:
+            local_file = remote_file
+    elif re.search(r".*:", target):
         if re.search(r"@", target):
             user = target.split("@")[0]
             host = target.split("@")[1]
@@ -152,17 +165,6 @@ def main():
             remote_dir = "~"
             remote_file = remote_path
             remote_path = f"{remote_dir}/{remote_file}"
-    elif os.path.isdir(target):
-        local_dir = os.path.abspath(os.path.expanduser(target))
-        local_file = remote_file
-    elif os.path.isdir(os.path.dirname(target)):
-        # we've been passed in a filename, may not exist yet
-        local_dir = os.path.dirname(os.path.abspath(os.path.expanduser(target)))
-        if os.path.basename(target) != remote_file:
-            # have to honour the change of name
-            local_file = os.path.basename(target)
-        else:
-            local_file = remote_file
     else:
         raise SystemExit(
             "specified target is not a valid path to a local "
@@ -217,7 +219,7 @@ def main():
         "get": get,
         "noverify": noverify,
         "split_timeout": split_timeout,
-        "nocurses": nocurses,
+        "use_curses": use_curses,
     }
     logger.info(kwargs)
 
