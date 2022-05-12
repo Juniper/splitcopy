@@ -163,14 +163,11 @@ class Progress:
         if self.files[file_name]["percent_done"] != percent_done:
             self.files[file_name]["percent_done"] = percent_done
 
-    #            self.update_screen_contents()
-
     def total_percentage_update(self):
         """checks if the total percentage of bytes transferred differs from previous
         check. If so, return True. Also checks whether transfer is complete, and if so
         stops the periodic update of the curses screen
-        :return result:
-        :type bool:
+        :return None:
         """
         sum_sent = 0
         sum_completed = 0
@@ -232,7 +229,9 @@ class Progress:
         return f"[{'#' * int(percent_done/2)}{(50 - int(percent_done/2)) * ' '}]"
 
     def kbps_update(self):
-        """updates the KBps per chunk and total. Called on a 1sec periodic"""
+        """updates the KBps per chunk and total. Called on a 1sec periodic
+        :return None:
+        """
         sum_kbps = 0
         for file in self.chunks:
             file_name = file[0]
@@ -303,7 +302,7 @@ class Progress:
 
     def abandon_curses(self):
         """Function to exit curses and restore terminal to prior state.
-        :returns None:
+        :return None:
         """
         try:
             curses.nocbreak()
@@ -316,7 +315,7 @@ class Progress:
         """Method to redraw the screen using curses library.
         :param txt_lines:
         :type list:
-        :returns None:
+        :return None:
         """
         lines = len(txt_lines)
         for line in range(lines):
