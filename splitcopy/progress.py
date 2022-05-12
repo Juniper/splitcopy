@@ -42,7 +42,6 @@ class Progress:
         self.totals["sum_completed"] = 0
         self.totals["sum_kbps"] = 0
         self.totals["percent_done"] = 0
-        self.totals["last_percent"] = 0
         self.totals["total_file_size"] = total_file_size
         self.files = {}
         for chunk in chunks:
@@ -104,7 +103,7 @@ class Progress:
             if stop():
                 break
             self.kbps_update()
-            self.total_percentage_update()
+            self.totals_update()
             if self.curses:
                 self.update_screen_contents()
             else:
@@ -163,10 +162,10 @@ class Progress:
         if self.files[file_name]["percent_done"] != percent_done:
             self.files[file_name]["percent_done"] = percent_done
 
-    def total_percentage_update(self):
-        """checks if the total percentage of bytes transferred differs from previous
-        check. If so, return True. Also checks whether transfer is complete, and if so
-        stops the periodic update of the curses screen
+    def totals_update(self):
+        """Function that determines the total number of bytes sent,
+        the total percentage of bytes transferred and how many of
+        the chunks are completed
         :return None:
         """
         sum_sent = 0
@@ -179,11 +178,6 @@ class Progress:
         total_file_size = self.totals["total_file_size"]
         percent_done = self.percent_val(total_file_size, sum_sent)
         self.totals["percent_done"] = percent_done
-        if percent_done == 100:
-            self.stop_timer_thread()
-        last_percent = self.totals["last_percent"]
-        if last_percent != percent_done:
-            last_percent = percent_done
 
     def total_progress_str(self):
         """returns a single line with progress info such as:
