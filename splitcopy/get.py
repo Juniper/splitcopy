@@ -59,7 +59,7 @@ class SplitCopyGet:
         self.get_op = kwargs.get("get")
         self.noverify = kwargs.get("noverify")
         self.split_timeout = kwargs.get("split_timeout")
-        self.nocurses = kwargs.get("nocurses")
+        self.use_curses = kwargs.get("use_curses")
         self.sshshell = None
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
@@ -69,7 +69,7 @@ class SplitCopyGet:
     def handlesigint(self, sigint, stack):
         logger.debug(f"signal {sigint} received, stack:\n{stack}")
         self.mute = True
-        self.progress.abandon_curses()
+        self.progress.stop_progress()
         self.scs.close(hard_close=self.hard_close)
 
     def get(self):
@@ -164,7 +164,7 @@ class SplitCopyGet:
         if junos or evo:
             command_list = self.scs.limit_check(self.copy_proto)
         print("starting transfer...")
-        self.progress = Progress(file_size, sfiles, self.nocurses)
+        self.progress = Progress(file_size, sfiles, self.use_curses)
         with self.scs.tempdir():
             # copy files from remote host
             self.hard_close = True
@@ -185,7 +185,7 @@ class SplitCopyGet:
             try:
                 loop.run_until_complete(asyncio.gather(*tasks))
             except TransferError:
-                self.progress.abandon_curses()
+                self.progress.stop_progress()
                 self.scs.close(
                     err_str="an error occurred while copying the files from the remote host",
                     hard_close=self.hard_close,
@@ -193,7 +193,7 @@ class SplitCopyGet:
             finally:
                 loop.close()
                 self.hard_close = False
-                self.progress.abandon_curses()
+                self.progress.stop_progress()
 
             print("\ntransfer complete")
             loop_end = datetime.datetime.now()
@@ -419,9 +419,9 @@ class SplitCopyGet:
         file_size = sfile[1]
         srcpath = f"{remote_tmpdir}/{file_name}"
         logger.info(f"{file_name}, size {file_size}")
-        if self.copy_proto == "ftp":
-            while err_count < 3:
-                try:
+        while err_count < 3:
+            try:
+                if self.copy_proto == "ftp":
                     with FTP(
                         file_size=file_size,
                         progress=self.progress,
@@ -436,27 +436,10 @@ class SplitCopyGet:
                             except FileNotFoundError:
                                 pass
                         if restart_marker:
-                            print(f"\nresuming {file_name} from byte {restart_marker}")
+                            self.progress.print_error(f"resuming {file_name} from byte {restart_marker}")
                         ftp.get(srcpath, file_name, restart_marker)
                     break
-                except Exception as err:
-                    err_count += 1
-                    logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-                    if not self.mute:
-                        if err_count < 3:
-                            print(
-                                f"\nchunk {file_name} transfer failed due to "
-                                f"{err.__class__.__name__} {str(err)}, retrying"
-                            )
-                        else:
-                            print(
-                                f"\nchunk {file_name} transfer failed due to "
-                                f"{err.__class__.__name__} {str(err)}"
-                            )
-                    time.sleep(err_count)
-        else:
-            while err_count < 3:
-                try:
+                else:
                     with SSHShell(**ssh_kwargs) as ssh:
                         if not ssh.worker_thread_auth():
                             ssh.close()
@@ -470,21 +453,21 @@ class SplitCopyGet:
                         # adding sleep here appears to prevent this
                         time.sleep(1)
                     break
-                except Exception as err:
-                    err_count += 1
-                    logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-                    if not self.mute:
-                        if err_count < 3:
-                            print(
-                                f"\nchunk {file_name} transfer failed due to "
-                                f"{err.__class__.__name__} {str(err)}, retrying"
-                            )
-                        else:
-                            print(
-                                f"\nchunk {file_name} transfer failed due to "
-                                f"{err.__class__.__name__} {str(err)}"
-                            )
-                    time.sleep(err_count)
+            except Exception as err:
+                err_count += 1
+                logger.debug("".join(traceback.format_exception(*sys.exc_info())))
+                if not self.mute:
+                    if err_count < 3:
+                        self.progress.print_error(
+                            f"chunk {file_name} transfer failed due to "
+                            f"{err.__class__.__name__} {str(err)}, retrying"
+                        )
+                    else:
+                        self.progress.print_error(
+                            f"chunk {file_name} transfer failed due to "
+                            f"{err.__class__.__name__} {str(err)}"
+                        )
+                time.sleep(err_count)
 
         if err_count == 3:
             self.mute = True
