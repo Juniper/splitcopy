@@ -62,7 +62,7 @@ class Progress:
         self.initiate_timer_thread()
 
     def check_term_size(self, result):
-        """ function that checks whether curses can be supported or not
+        """function that checks whether curses can be supported or not
         preferable to do this prior to initiating a curses window
         :param result:
         :type bool:
@@ -81,15 +81,18 @@ class Progress:
         return result
 
     def initiate_timer_thread(self):
-        """ Function that starts a single thread
+        """Function that starts a single thread
         :return None:
         """
-        self.timer = Thread(target=self.one_sec_timer, args=(1, lambda: self.stop_timer))
+        self.timer = Thread(
+            name="one_sec_timer",
+            target=self.one_sec_timer,
+            args=(1, lambda: self.stop_timer),
+        )
         self.timer.start()
 
-
     def one_sec_timer(self, thread_id, stop):
-        """ Function that calls other functions to update data that is then displayed
+        """Function that calls other functions to update data that is then displayed
         to the user once a second
         :param thread_id:
         :type int: # required for Thread(), otherwise unused
@@ -109,9 +112,9 @@ class Progress:
             time.sleep(1)
 
     def stop_timer_thread(self):
-        """ function that causes the timer thread to exit
+        """function that causes the timer thread to exit
         :returns None:
-         """
+        """
         self.stop_timer = True
         try:
             self.timer.join()
@@ -138,18 +141,16 @@ class Progress:
         else:
             self.files[file_name]["complete"] = 0
         self.files[file_name]["sent_bytes"] = sent
-        self.file_percentage_update(
-            file_name, file_size, sent
-        )
+        self.file_percentage_update(file_name, file_size, sent)
 
     def disp_total_progress(self):
-        """ Function that outputs progress string when curses is not used
+        """Function that outputs progress string when curses is not used
         :return None:
         """
         print(f"\r{self.total_progress_str()}", end="")
 
     def file_percentage_update(self, file_name, file_size, sent):
-        """ Function to update the percent complete for a given file
+        """Function to update the percent complete for a given file
         :param file_name:
         :type string:
         :param file_size:
@@ -161,10 +162,11 @@ class Progress:
         percent_done = self.percent_val(file_size, sent)
         if self.files[file_name]["percent_done"] != percent_done:
             self.files[file_name]["percent_done"] = percent_done
-#            self.update_screen_contents()
+
+    #            self.update_screen_contents()
 
     def total_percentage_update(self):
-        """ checks if the total percentage of bytes transferred differs from previous
+        """checks if the total percentage of bytes transferred differs from previous
         check. If so, return True. Also checks whether transfer is complete, and if so
         stops the periodic update of the curses screen
         :return result:
@@ -187,7 +189,7 @@ class Progress:
             last_percent = percent_done
 
     def total_progress_str(self):
-        """ returns a single line with progress info such as:
+        """returns a single line with progress info such as:
             % done, number of bytes transferred etc
         :return output:
         :type string:
@@ -212,7 +214,7 @@ class Progress:
         return output
 
     def percent_val(self, total_amount, partial_amount):
-        """ returns a percentage
+        """returns a percentage
         :param total_amount:
         :type int:
         :param partial_amount:
@@ -222,7 +224,7 @@ class Progress:
         return int((100 / total_amount) * partial_amount)
 
     def progress_bar(self, percent_done):
-        """ returns a graphical progress bar as a string
+        """returns a graphical progress bar as a string
         :param percent_done:
         :type int:
         :return string:
@@ -230,7 +232,7 @@ class Progress:
         return f"[{'#' * int(percent_done/2)}{(50 - int(percent_done/2)) * ' '}]"
 
     def kbps_update(self):
-        """ updates the KBps per chunk and total. Called on a 1sec periodic """
+        """updates the KBps per chunk and total. Called on a 1sec periodic"""
         sum_kbps = 0
         for file in self.chunks:
             file_name = file[0]
@@ -246,7 +248,7 @@ class Progress:
         self.totals["sum_kbps"] = sum_kbps
 
     def update_screen_contents(self):
-        """ Function collates the information to be drawn by curses
+        """Function collates the information to be drawn by curses
         :return None:
         """
         txt_lines = []
@@ -268,7 +270,7 @@ class Progress:
             self.curses = False
 
     def print_error(self, error):
-        """ correctly output errors when curses window is active or not
+        """correctly output errors when curses window is active or not
         :param error:
         :type string:
         :return None:
@@ -278,11 +280,11 @@ class Progress:
         else:
             # when using curses window, \n results in broken output
             term_width = os.get_terminal_size()[0]
-            padding = " "*(term_width - len(error))
+            padding = " " * (term_width - len(error))
             print(f"\r{error}{padding}")
 
     def stop_progress(self):
-        """ Function that stops the timer thread (and thus progress output)
+        """Function that stops the timer thread (and thus progress output)
         Then shuts down the curses window (if applicable)
         :return None:
         """
