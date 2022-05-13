@@ -34,14 +34,12 @@ logger = logging.getLogger(__name__)
 
 
 class SplitCopyShared:
-    """
-    functions shared by both SplitCopyGet and SplitCopyPut classes
+    """Class containing functions used by both SplitCopyGet
+    and SplitCopyPut classes
     """
 
     def __init__(self, **kwargs):
-        """
-        Initialise the SplitCopyShared class
-        """
+        """Initialise the class"""
         self.user = kwargs.get("user")
         self.host = kwargs.get("host")
         self.passwd = kwargs.get("passwd")
@@ -59,6 +57,14 @@ class SplitCopyShared:
         self.sshshell = None
 
     def connect(self, **ssh_kwargs):
+        """Function to open an ssh session to a remote host
+        :param ssh_kwargs:
+        :type dict:
+        :return self.sshshell:
+        :type paramiko.SSHShell object:
+        :returm ssh_kwargs:
+        :type dict:
+        """
         try:
             self.sshshell = SSHShell(**ssh_kwargs)
             if self.sshshell.main_thread_auth():
@@ -81,8 +87,14 @@ class SplitCopyShared:
         return self.sshshell, ssh_kwargs
 
     def which_proto(self, copy_proto):
-        """
-        verify that if FTP is selected as protocol, that authentication works
+        """Function that determines which protocol will be used for the transfer.
+        If FTP is selected as protocol, verify that authentication works
+        :param copy_proto:
+        :type string:
+        :return copy_proto:
+        :type string:
+        :return passwd:
+        :type string:
         """
         passwd = self.sshshell.kwargs["password"]
         result = None
@@ -109,9 +121,9 @@ class SplitCopyShared:
         return copy_proto, passwd
 
     def ftp_port_check(self):
-        """
-        checks ftp port is open
-        :returns: bool
+        """Function that checks whether the ftp port is open
+        :return result:
+        :type bool:
         """
         result = False
         print("attempting FTP authentication...")
@@ -127,11 +139,11 @@ class SplitCopyShared:
         return result
 
     def ftp_login_check(self, passwd):
-        """
-        checks ftp login works on remote host
-        :param passwd: password
-        :type: string
-        :returns: bool
+        """Function that verifies ftp authentication on remote host
+        :param passwd:
+        :type string:
+        :return result:
+        :type bool:
         """
         result = False
         kwargs = {
@@ -145,10 +157,16 @@ class SplitCopyShared:
         return result
 
     def which_os(self):
-        """
-        determine if host is JUNOS/EVO/*nix
-        no support for Windows OS running OpenSSH
-        :returns None:
+        """Function determines if host is JUNOS/EVO/*nix
+        no support for remote Windows OS running OpenSSH
+        :return junos:
+        :type bool:
+        :return evo:
+        :type bool:
+        :return bsd_version:
+        :type float:
+        :return sshd_version:
+        :type float:
         """
         logger.info("entering which_os()")
         evo = False
@@ -171,19 +189,23 @@ class SplitCopyShared:
         return junos, evo, bsd_version, sshd_version
 
     def evo_os(self):
-        """
-        determines if host is EVO
-        :returns result: True if OS is EVO
-        :type: boolean
+        """Function that determines if host is running EVO
+        :return result:
+        :type bool:
         """
         logger.info("entering evo_os()")
         result, stdout = self.sshshell.run("test -e /usr/sbin/evo-pfemand")
         return result
 
     def junos_os(self):
-        """
-        determines if host is JUNOS
-        :returns None:
+        """Function that determines if host is running JUNOS
+        and if so which bsd and sshd versions are in use
+        :return junos:
+        :type bool:
+        :return bsd_version:
+        :type float:
+        :return sshd_version:
+        :type float:
         """
         logger.info("entering junos_os()")
         junos = False
@@ -206,9 +228,9 @@ class SplitCopyShared:
         return junos, bsd_version, sshd_version
 
     def which_bsd(self):
-        """
-        determines the BSD version of JUNOS
-        :returns None:
+        """Function that determines the BSD version of JUNOS
+        :return bsd_version:
+        :type float:
         """
         logger.info("entering which_bsd()")
         result, stdout = self.sshshell.run("uname -r")
@@ -219,9 +241,9 @@ class SplitCopyShared:
         return bsd_version
 
     def which_sshd(self):
-        """
-        determines the OpenSSH daemon version
-        :returns None:
+        """Function that determines the OpenSSH daemon version
+        :return sshd_version:
+        :type float
         """
         logger.info("entering which_sshd()")
         result, stdout = self.sshshell.run("sshd -v", exitcode=False)
@@ -233,40 +255,44 @@ class SplitCopyShared:
         return sshd_version
 
     def req_binaries(self, get_op=False, junos=False, evo=False):
-        """
-        ensures required binaries exist on remote host
+        """Function ensures required binaries exist on remote host
+        :param get_op:
+        :type bool:
+        :param junos:
+        :type bool:
+        :param evo:
+        :type bool:
         :returns None:
         """
         logger.info("entering req_binaries()")
         if not junos and not evo:
             if get_op:
-                req_bins = ["dd", "ls", "df", "rm"]
+                req_bins = "dd ls df rm"
             else:
-                req_bins = ["cat", "ls", "df", "rm"]
-            for req_bin in req_bins:
-                result, stdout = self.sshshell.run(f"which {req_bin}")
-                if not result:
-                    self.close(
-                        err_str=(
-                            f"required binary '{req_bin}' is missing from remote host"
-                        )
+                req_bins = "cat ls df rm"
+            result, stdout = self.sshshell.run(f"which {req_bins}")
+            if not result:
+                self.close(
+                    err_str=(
+                        f"one or more required binaries [{req_bins}] is missing from remote host"
                     )
+                )
 
     def second_elem(self, elem):
-        """
-        used for key sort
-        :returns: the 2nd part of an element
+        """Function used for key sort
+        :param elem:
+        :type list:
+        :return: the 2nd element of the list
         """
         return elem[1]
 
     def req_sha_binaries(self, sha_hash):
-        """
-        ensures required binaries for sha hash creation exist on remote host
+        """ensures required binaries for sha hash creation exist on remote host
         :param sha_hash:
         :type hash:
-        :returns sha_bin:
+        :return sha_bin:
         :type string:
-        :returns sha_len:
+        :return sha_len:
         :type int:
         """
         logger.info("entering req_sha_binaries()")
@@ -308,13 +334,16 @@ class SplitCopyShared:
         return sha_bin, sha_len
 
     def close(self, err_str=None, config_rollback=True, hard_close=False):
-        """
-        Called when we want to exit the script
+        """Called when we want to exit the script
         attempts to delete the remote temp directory and close the TCP session
         If hard_close == False, contextmanager will rm the local temp dir
         If not, we must delete it manually
-        :param err_str: error description
-        :type: string
+        :param err_str:
+        :type: string:
+        :param config_rollback:
+        :type bool:
+        :param hard_close:
+        :type bool:
         :raises SystemExit: terminates the script gracefully
         :raises os._exit: terminates the script immediately (even asyncio loop)
         """
@@ -324,12 +353,8 @@ class SplitCopyShared:
             self.remote_cleanup()
         if config_rollback and self.command_list:
             self.limits_rollback()
-        print("\rclosing device connection             ")
+        print(f"\r{self.padded_string('closing device connection')}")
         self.sshshell.close()
-        try:
-            self.progress.abandon_curses()
-        except AttributeError:
-            pass
         if hard_close:
             try:
                 shutil.rmtree(self.local_tmpdir)
@@ -342,10 +367,20 @@ class SplitCopyShared:
         else:
             raise SystemExit(1)
 
-    def file_split_size(self, file_size, sshd_version, bsd_version, evo, copy_proto):
+    def padded_string(self, text):
+        """Function that pads a given string to the terminal width
+        :param text:
+        :type string:
+        :return padded:
+        :type string
         """
-        The chunk size depends on the python version, cpu count,
-        the protocol used to copy, FreeBSD and OpenSSH version
+        term_width = os.get_terminal_size()[0]
+        padded = " " * (term_width - len(text))
+        return padded
+
+    def file_split_size(self, file_size, sshd_version, bsd_version, evo, copy_proto):
+        """Function determines the optimal chunk size. This depends on the python
+        version, cpu count, the protocol used and the FreeBSD/OpenSSH versions
         :returns split_size:
         :type int:
         :returns executor:
@@ -392,16 +427,17 @@ class SplitCopyShared:
         # if using python < 3.5.3 the default max_workers is 5.
         # see https://github.com/python/cpython/blob/v3.5.2/Lib/asyncio/base_events.py
         # hence defining a custom executor to normalize max_workers across versions
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="transfer"
+        )
         logger.info(
             f"max_workers = {max_workers}, cpu_count = {cpu_count}, split_size = {split_size}"
         )
         return split_size, executor
 
     def mkdir_remote(self):
-        """
-        creates a tmp directory on the remote host
-        :returns self.remote_tmpdir:
+        """Function that creates a tmp directory on the remote host
+        :returns remote_tmpdir:
         :type string:
         """
         logger.info("entering mkdir_remote()")
@@ -423,8 +459,11 @@ class SplitCopyShared:
         return remote_tmpdir
 
     def storage_check_remote(self, file_size, split_size):
-        """
-        checks whether there is enough storage space on remote node
+        """Function that checks whether there is enough storage space on remote node
+        :param file_size:
+        :type int:
+        :param split_size:
+        :type int:
         :returns None:
         """
         logger.info("entering storage_check_remote()")
@@ -465,9 +504,10 @@ class SplitCopyShared:
                 self.close(err_str=err)
 
     def storage_check_local(self, file_size):
-        """
-        checks whether there is enough storage space on local node
-        :returns None:
+        """Function that checks whether there is enough storage space on local node
+        :param file_size:
+        :type int:
+        :return None:
         """
         logger.info("entering storage_check_local()")
         print("checking local storage...")
@@ -498,10 +538,11 @@ class SplitCopyShared:
 
     @contextmanager
     def change_dir(self, cleanup=lambda: True):
-        """
-        cds into temp directory.
+        """Function that cds into temp directory.
         Upon script exit, changes back to original directory
         and calls cleanup() to delete the temp directory
+        :param cleanup:
+        :type function:
         :returns None:
         """
         prevdir = os.getcwd()
@@ -514,8 +555,7 @@ class SplitCopyShared:
 
     @contextmanager
     def tempdir(self):
-        """
-        creates a temp directory
+        """Function that creates a temp directory,
         defines how to delete directory upon script exit
         :returns None:
         """
@@ -530,14 +570,20 @@ class SplitCopyShared:
             yield self.local_tmpdir
 
     def return_tmpdir(self):
+        """Function to return class variable
+        :return self.local_tmpdir:
+        :type string:
+        """
         return self.local_tmpdir
 
     def limit_check(self, copy_proto):
-        """
-        Checks the remote hosts /etc/inetd file to determine whether there are any
-        ftp or ssh connection/rate limits defined. If found, these configuration lines
-        will be deactivated
-        :returns None:
+        """Function that checks the remote junos/evo hosts configuration to
+        determine whether there are any ftp or ssh connection/rate limits defined.
+        If found, these configuration lines will be deactivated
+        :param copy_proto:
+        :type string:
+        :return self.command_list or None:
+        :type list:
         """
         logger.info("entering limit_check()")
         config_stanzas = ["groups", "system services", "system login"]
@@ -605,8 +651,7 @@ class SplitCopyShared:
             return None
 
     def limits_rollback(self):
-        """
-        revert config change made to remote host
+        """Function to revert config changes made to remote host
         :returns None:
         """
         logger.info("entering limits_rollback()")
@@ -631,18 +676,21 @@ class SplitCopyShared:
             )
 
     def remote_cleanup(self, remote_dir=None, remote_file=None, silent=False):
-        """
-        delete tmp directory on remote host
+        """Functiont that deletes the tmp directory on remote host
+        :param remote_dir:
+        :type string:
+        :param remote_file:
+        :type string:
         :param silent: determines whether we announce the dir deletion
         :type: bool
-        :returns None:
+        :return None:
         """
         if remote_dir:
             self.remote_dir = remote_dir
         if remote_file:
             self.remote_file = remote_file
         if not silent:
-            print("\rdeleting remote tmp directory...")
+            print(f"\r{self.padded_string('deleting remote tmp directory...')}")
         if self.remote_tmpdir is None:
             if self.get_op:
                 self.sshshell.run(f"rm -rf /var/tmp/splitcopy_{self.remote_file}.*")
