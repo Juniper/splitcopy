@@ -40,19 +40,18 @@ class Progress:
         self.totals = {}
         self.totals["sum_sent"] = 0
         self.totals["sum_completed"] = 0
-        self.totals["sum_kbps"] = 0
+        self.totals["sum_kbps"] = 0.0
         self.totals["percent_done"] = 0
         self.totals["total_file_size"] = total_file_size
         self.files = {}
         for chunk in chunks:
             file_name = chunk[0]
             self.files[file_name] = {}
-            self.files[file_name]["last_ts"] = time.time()
-            self.files[file_name]["last_kb"] = 0
-            self.files[file_name]["kb_rate"] = 0
+            self.files[file_name]["last_kb"] = 0.0
+            self.files[file_name]["kb_rate"] = 0.0
             self.files[file_name]["percent_done"] = 0
             self.files[file_name]["sent_bytes"] = 0
-            self.files[file_name]["complete"] = False
+            self.files[file_name]["complete"] = 0
         self.curses = self.check_term_size(use_curses)
         if self.curses:
             self.stdscr = self.prepare_curses()
@@ -198,8 +197,8 @@ class Progress:
             pass
         output = (
             f"{str(percent_done)}% done {sum_sent_kb}"
-            f"/{int(total_file_size/1024)}KB "
-            f"{sum_kbps} KB/s "
+            f"/{int(total_file_size/1024)} KB "
+            f"{sum_kbps:>6.1f} KB/s "
             f"({sum_completed}/{len(self.chunks)} chunks completed)"
         )
         return output
@@ -226,19 +225,31 @@ class Progress:
         """updates the KBps per chunk and total. Called on a 1sec periodic
         :return None:
         """
-        sum_kbps = 0
+        sum_kbps = 0.0
         for file in self.chunks:
             file_name = file[0]
             try:
-                sent_kbytes = int(self.files[file_name]["sent_bytes"] / 1024)
+                sent_kbytes = self.files[file_name]["sent_bytes"] / 1024
             except DivisionByZero:
                 sent_kbytes = 0
             last_kb = self.files[file_name]["last_kb"]
             kb_rate = float(sent_kbytes - last_kb)
-            self.files[file_name]["last_kb"] = sent_kbytes
+            self.files[file_name]["last_kb"] = int(sent_kbytes)
             self.files[file_name]["kb_rate"] = kb_rate
             sum_kbps += kb_rate
         self.totals["sum_kbps"] = sum_kbps
+
+    def zero_file_stats(self, file_name):
+        """Function that resets a files stats if transfer is restarted
+        :param file_name:
+        :type string:
+        :return None:
+        """
+        self.files[file_name]["last_kb"] = 0
+        self.files[file_name]["kb_rate"] = 0
+        self.files[file_name]["percent_done"] = 0
+        self.files[file_name]["sent_bytes"] = 0
+        self.files[file_name]["complete"] = 0
 
     def update_screen_contents(self):
         """Function collates the information to be drawn by curses
