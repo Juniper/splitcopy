@@ -353,7 +353,7 @@ class SplitCopyShared:
             self.remote_cleanup()
         if config_rollback and self.command_list:
             self.limits_rollback()
-        print(f"\r{self.padded_string('closing device connection')}")
+        print(f"\r{self.pad_string('closing device connection')}")
         self.sshshell.close()
         if hard_close:
             try:
@@ -367,16 +367,17 @@ class SplitCopyShared:
         else:
             raise SystemExit(1)
 
-    def padded_string(self, text):
+    def pad_string(self, text):
         """Function that pads a given string to the terminal width
         :param text:
         :type string:
-        :return padded:
+        :return padded_string:
         :type string
         """
         term_width = os.get_terminal_size()[0]
-        padded = " " * (term_width - len(text))
-        return padded
+        padding = " " * (term_width - len(text))
+        padded_string = f"{text}{padding}"
+        return padded_string
 
     def file_split_size(self, file_size, sshd_version, bsd_version, evo, copy_proto):
         """Function determines the optimal chunk size. This depends on the python
@@ -428,7 +429,7 @@ class SplitCopyShared:
         # see https://github.com/python/cpython/blob/v3.5.2/Lib/asyncio/base_events.py
         # hence defining a custom executor to normalize max_workers across versions
         executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=max_workers, thread_name_prefix="transfer"
+            max_workers=max_workers, thread_name_prefix="ThreadPoolWorker"
         )
         logger.info(
             f"max_workers = {max_workers}, cpu_count = {cpu_count}, split_size = {split_size}"
@@ -690,7 +691,7 @@ class SplitCopyShared:
         if remote_file:
             self.remote_file = remote_file
         if not silent:
-            print(f"\r{self.padded_string('deleting remote tmp directory...')}")
+            print(f"\r{self.pad_string('deleting remote tmp directory...')}")
         if self.remote_tmpdir is None:
             if self.get_op:
                 self.sshshell.run(f"rm -rf /var/tmp/splitcopy_{self.remote_file}.*")
