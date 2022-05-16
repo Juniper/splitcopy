@@ -488,6 +488,8 @@ class SplitCopyPut:
                             self.progress.print_error(
                                 f"resuming {file_name} from byte {restart_marker}"
                             )
+                        else:
+                            self.progress.zero_file_stats(file_name)
                         ftp.put(file_name, dstpath, restart_marker)
                     break
                 else:
@@ -498,6 +500,8 @@ class SplitCopyPut:
                         with SCPClient(
                             ssh._transport, progress=self.progress.report_progress
                         ) as scpclient:
+                            if err_count:
+                                self.progress.zero_file_stats(file_name)
                             scpclient.put(file_name, dstpath)
                     break
             except Exception as err:
@@ -519,6 +523,7 @@ class SplitCopyPut:
         if err_count == 3:
             self.mute = True
             raise TransferError
+
 
 class TransferError(Exception):
     """
