@@ -435,8 +435,12 @@ class SplitCopyGet:
                                 restart_marker = os.stat(file_name).st_size
                             except FileNotFoundError:
                                 pass
-                        if restart_marker:
-                            self.progress.print_error(f"resuming {file_name} from byte {restart_marker}")
+                        if restart_marker is not None:
+                            self.progress.print_error(
+                                f"resuming {file_name} from byte {restart_marker}"
+                            )
+                        else:
+                            self.progress.zero_file_stats(file_name)
                         ftp.get(srcpath, file_name, restart_marker)
                     break
                 else:
@@ -447,6 +451,8 @@ class SplitCopyGet:
                         with SCPClient(
                             ssh._transport, progress=self.progress.report_progress
                         ) as scpclient:
+                            if err_count:
+                                self.progress.zero_file_stats(file_name)
                             scpclient.get(srcpath, file_name)
                         # hack. at times, a FIN wasn't being sent resulting in sshd (notty)
                         # processes being left in ESTABLISHED state on server.
