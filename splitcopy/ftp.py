@@ -59,7 +59,7 @@ class FTP(ftplib.FTP):
         with open(local_file, "rb") as open_local_file:
             if restart_marker is not None:
                 self.sent = restart_marker
-                open_local_file.seek(restart_marker,0)
+                open_local_file.seek(restart_marker, 0)
 
             def callback(data):
                 size_data = sys.getsizeof(data) - self.header_bytes
@@ -87,6 +87,7 @@ class FTP(ftplib.FTP):
         if restart_marker is not None:
             self.sent = restart_marker
         with open(local_file, "ab") as open_local_file:
+
             def callback(data):
                 open_local_file.write(data)
                 size_data = sys.getsizeof(data) - self.header_bytes
@@ -98,4 +99,3 @@ class FTP(ftplib.FTP):
                 )
 
             self.retrbinary("RETR " + remote_file, callback, rest=restart_marker)
-
