@@ -7,7 +7,6 @@
 """
 
 # stdlib
-from decimal import DivisionByZero
 import logging
 import time
 import os
@@ -38,19 +37,19 @@ class Progress:
         self.ts = time.time()
         self.chunk_size = str(chunks[0][1])
         self.totals = {}
-        self.totals["sum_sent"] = 0
+        self.totals["sum_bytes_sent"] = 0
         self.totals["sum_completed"] = 0
-        self.totals["sum_kbps"] = 0.0
+        self.totals["sum_bytes_per_sec"] = 0.0
         self.totals["percent_done"] = 0
         self.totals["total_file_size"] = total_file_size
         self.files = {}
         for chunk in chunks:
             file_name = chunk[0]
             self.files[file_name] = {}
-            self.files[file_name]["last_kb"] = 0.0
-            self.files[file_name]["kb_rate"] = 0.0
-            self.files[file_name]["percent_done"] = 0
             self.files[file_name]["sent_bytes"] = 0
+            self.files[file_name]["last_sent_bytes"] = 0
+            self.files[file_name]["bytes_per_sec"] = 0.0
+            self.files[file_name]["percent_done"] = 0
             self.files[file_name]["complete"] = 0
         self.curses = self.check_term_size(use_curses)
         if self.curses:
@@ -101,7 +100,7 @@ class Progress:
         while True:
             if stop():
                 break
-            self.kbps_update()
+            self.rates_update()
             self.totals_update()
             if self.curses:
                 self.update_screen_contents()
@@ -167,15 +166,15 @@ class Progress:
         the chunks are completed
         :return None:
         """
-        sum_sent = 0
+        sum_bytes_sent = 0
         sum_completed = 0
-        for file in self.files:
-            sum_sent += self.files[file]["sent_bytes"]
-            sum_completed += self.files[file]["complete"]
-        self.totals["sum_sent"] = sum_sent
-        self.totals["sum_completed"] = sum_completed
         total_file_size = self.totals["total_file_size"]
-        percent_done = self.percent_val(total_file_size, sum_sent)
+        for file in self.files:
+            sum_bytes_sent += self.files[file]["sent_bytes"]
+            sum_completed += self.files[file]["complete"]
+        self.totals["sum_bytes_sent"] = sum_bytes_sent
+        self.totals["sum_completed"] = sum_completed
+        percent_done = self.percent_val(total_file_size, sum_bytes_sent)
         self.totals["percent_done"] = percent_done
 
     def total_progress_str(self):
@@ -186,19 +185,16 @@ class Progress:
         """
         percent_done = self.totals["percent_done"]
         sum_completed = self.totals["sum_completed"]
-        sum_kbps = self.totals["sum_kbps"]
-        sum_sent = self.totals["sum_sent"]
+        sum_bytes_per_sec = self.totals["sum_bytes_per_sec"]
+        sum_bytes_sent = self.totals["sum_bytes_sent"]
         total_file_size = self.totals["total_file_size"]
-
-        sum_sent_kb = 0
-        try:
-            sum_sent_kb = int(sum_sent / 1024)
-        except DivisionByZero:
-            pass
+        sum_bytes, sum_bytes_unit = self.bytes_display(sum_bytes_sent)
+        total_bytes, total_bytes_unit = self.bytes_display(total_file_size)
+        rate_per_sec, rate_unit = self.bytes_display(sum_bytes_per_sec)
         output = (
-            f"{str(percent_done)}% done {sum_sent_kb}"
-            f"/{int(total_file_size/1024)} KB "
-            f"{sum_kbps:>6.1f} KB/s "
+            f"{str(percent_done)}% done {sum_bytes:.1f}{sum_bytes_unit}"
+            f"/{total_bytes:.1f}{total_bytes_unit} "
+            f"{rate_per_sec:>6.1f}{rate_unit}/s "
             f"({sum_completed}/{len(self.chunks)} chunks completed)"
         )
         return output
@@ -221,23 +217,20 @@ class Progress:
         """
         return f"[{'#' * int(percent_done/2)}{(50 - int(percent_done/2)) * ' '}]"
 
-    def kbps_update(self):
-        """updates the KBps per chunk and total. Called on a 1sec periodic
+    def rates_update(self):
+        """updates the transfer rates per chunk and total. Called on a 1sec periodic
         :return None:
         """
-        sum_kbps = 0.0
+        sum_bytes_per_sec = 0.0
         for file in self.chunks:
             file_name = file[0]
-            try:
-                sent_kbytes = self.files[file_name]["sent_bytes"] / 1024
-            except DivisionByZero:
-                sent_kbytes = 0
-            last_kb = self.files[file_name]["last_kb"]
-            kb_rate = float(sent_kbytes - last_kb)
-            self.files[file_name]["last_kb"] = int(sent_kbytes)
-            self.files[file_name]["kb_rate"] = kb_rate
-            sum_kbps += kb_rate
-        self.totals["sum_kbps"] = sum_kbps
+            sent_bytes = self.files[file_name]["sent_bytes"]
+            last_sent_bytes = self.files[file_name]["last_sent_bytes"]
+            bytes_per_sec = sent_bytes - last_sent_bytes
+            self.files[file_name]["last_sent_bytes"] = sent_bytes
+            self.files[file_name]["bytes_per_sec"] = bytes_per_sec
+            sum_bytes_per_sec += bytes_per_sec
+        self.totals["sum_bytes_per_sec"] = sum_bytes_per_sec
 
     def zero_file_stats(self, file_name):
         """Function that resets a files stats if transfer is restarted
@@ -245,11 +238,33 @@ class Progress:
         :type string:
         :return None:
         """
-        self.files[file_name]["last_kb"] = 0
-        self.files[file_name]["kb_rate"] = 0
+        self.files[file_name]["last_sent_bytes"] = 0
+        self.files[file_name]["bytes_per_sec"] = 0
         self.files[file_name]["percent_done"] = 0
         self.files[file_name]["sent_bytes"] = 0
         self.files[file_name]["complete"] = 0
+
+    def bytes_display(self, bytes):
+        """Function that returns a string identifying the size of the number
+        :param bytes:
+        :type int:
+        :return amount:
+        :type float:
+        :return unit:
+        :type string:
+        """
+        amount = 0.0
+        unit = ""
+        if bytes < 1024**2:
+            amount = bytes / 1024
+            unit = "KB"
+        elif bytes < 1024**3:
+            amount = bytes / 1024**2
+            unit = "MB"
+        elif bytes < 1024**4:
+            amount = bytes / 1024**3
+            unit = "GB"
+        return amount, unit
 
     def update_screen_contents(self):
         """Function collates the information to be drawn by curses
@@ -258,12 +273,13 @@ class Progress:
         txt_lines = []
         for file in self.chunks:
             file_name = file[0]
-            last_kb = self.files[file_name]["last_kb"]
-            kb_rate = self.files[file_name]["kb_rate"]
+            sent_bytes, sent_bytes_unit = self.bytes_display(self.files[file_name]["sent_bytes"])
+            bytes_per_sec, bytes_per_sec_unit = self.bytes_display(self.files[file_name]["bytes_per_sec"])
             percent_done = self.files[file_name]["percent_done"]
             txt_lines.append(
                 f"{file_name} {self.progress_bar(percent_done)} "
-                f"{percent_done:>3}% {last_kb:>6}KB {kb_rate:>6.1f}KB/s"
+                f"{percent_done:>3}% {sent_bytes:>6.1f}{sent_bytes_unit} "
+                f"{bytes_per_sec:>6.1f}{bytes_per_sec_unit}/s"
             )
         txt_lines.append("")
         txt_lines.append(f"{self.total_progress_str()}\n")
