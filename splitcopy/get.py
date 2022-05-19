@@ -69,7 +69,11 @@ class SplitCopyGet:
     def handlesigint(self, sigint, stack):
         logger.debug(f"signal {sigint} received, stack:\n{stack}")
         self.mute = True
-        self.progress.stop_progress()
+        try:
+            self.progress.stop_progress()
+        except AttributeError:
+            # in case SigInt raised prior to Progress()
+            pass
         self.scs.close(hard_close=self.hard_close)
 
     def get(self):
