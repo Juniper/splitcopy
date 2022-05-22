@@ -37,6 +37,7 @@ class Progress:
         self.ts = time.time()
         self.chunk_size = str(chunks[0][1])
         self.totals = {}
+        self.error_list = ["","",""]
         self.totals["sum_bytes_sent"] = 0
         self.totals["sum_completed"] = 0
         self.totals["sum_bytes_per_sec"] = 0.0
@@ -104,6 +105,12 @@ class Progress:
             self.totals_update()
             if self.curses:
                 self.update_screen_contents()
+                # add a newline to the end of the error list
+                # pushing older errors out of the curses display
+                self.print_error("")
+                # remove the 1st element from the error_list
+                # effectively making it a circular buffer
+                del self.error_list[0]
             else:
                 self.disp_total_progress()
             time.sleep(1)
@@ -273,16 +280,25 @@ class Progress:
         txt_lines = []
         for file in self.chunks:
             file_name = file[0]
+            if len(file_name) > 10:
+                file_name_str = f"{file_name[0:6]}..{file_name[-2:]}"
+            else:
+                file_name_str = file_name
             sent_bytes, sent_bytes_unit = self.bytes_display(self.files[file_name]["sent_bytes"])
             bytes_per_sec, bytes_per_sec_unit = self.bytes_display(self.files[file_name]["bytes_per_sec"])
             percent_done = self.files[file_name]["percent_done"]
             txt_lines.append(
-                f"{file_name} {self.progress_bar(percent_done)} "
+                f"{file_name_str} {self.progress_bar(percent_done)} "
                 f"{percent_done:>3}% {sent_bytes:>6.1f}{sent_bytes_unit} "
                 f"{bytes_per_sec:>6.1f}{bytes_per_sec_unit}/s"
             )
-        txt_lines.append("")
-        txt_lines.append(f"{self.total_progress_str()}\n")
+        txt_lines.append(self.pad_string(""))
+        txt_lines.append(f"{self.pad_string(self.total_progress_str())}")
+        # display the three most recent error strings
+        err_idx = -3
+        while err_idx < 0:
+            txt_lines.append(self.error_list[err_idx])
+            err_idx += 1
         try:
             self.redraw_screen(txt_lines)
         except curses.error:
@@ -298,10 +314,24 @@ class Progress:
         if not self.curses:
             print(f"\n{error}")
         else:
-            # when using curses window, \n results in broken output
-            term_width = os.get_terminal_size()[0]
-            padding = " " * (term_width - len(error))
-            print(f"\r{error}{padding}")
+            # when using curses window, \n results in the following line starting
+            # at the column the previous line ended at. This quickly becomes
+            # illegible. Idea here is to put any error logs in a list
+            # and only display the most recent additions in update_screen_contents()
+            padded_string = self.pad_string(error)
+            self.error_list.append(f"{padded_string}")
+
+    def pad_string(self, text):
+        """Function that pads a given string to the terminal width
+        :param text:
+        :type string:
+        :return padded_string:
+        :type string
+        """
+        term_width = os.get_terminal_size()[0]
+        padding = " " * (term_width - len(text))
+        padded_string = f"{text}{padding}"
+        return padded_string
 
     def stop_progress(self):
         """Function that stops the timer thread (and thus progress output)
