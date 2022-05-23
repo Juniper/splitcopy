@@ -1,0 +1,6 @@
+pytest
+pytest-mock
+pytest-cov
+pylint
+mypy
+codecov
