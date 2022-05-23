@@ -9,7 +9,7 @@
 # stdlib
 import logging
 import time
-import os
+from shutil import get_terminal_size
 from threading import Thread
 
 # stdlib on *nix, 3rd party on win32
@@ -23,7 +23,7 @@ class Progress:
     provides a progress meter to the user
     """
 
-    def __init__(self, total_file_size, chunks, use_curses):
+    def __init__(self, total_file_size, chunks):
         """Initialize the class
         :param total_file_size:
         :type int:
@@ -52,12 +52,8 @@ class Progress:
             self.files[file_name]["bytes_per_sec"] = 0.0
             self.files[file_name]["percent_done"] = 0
             self.files[file_name]["complete"] = 0
-        self.curses = self.check_term_size(use_curses)
-        if self.curses:
-            self.stdscr = self.prepare_curses()
         self.timer = None
         self.stop_timer = False
-        self.initiate_timer_thread()
 
     def check_term_size(self, result):
         """function that checks whether curses can be supported or not
@@ -68,11 +64,9 @@ class Progress:
         :type bool:
         """
         if result:
-            term_width, term_height = os.get_terminal_size()
+            term_width, term_height = get_terminal_size()
             req_height = len(self.chunks) + 4
             if term_height < req_height:
-                result = False
-            if term_width < 100:
                 result = False
             if not result:
                 print("terminal window is too small to display per-chunk statistics")
@@ -328,10 +322,22 @@ class Progress:
         :return padded_string:
         :type string
         """
-        term_width = os.get_terminal_size()[0]
+        term_width = get_terminal_size()[0]
         padding = " " * (term_width - len(text))
         padded_string = f"{text}{padding}"
         return padded_string
+
+    def start_progress(self, use_curses):
+        """Function that starts the timer thread (and thus progress output
+        Initiates the curses window (if applicable)
+        :param use_curses:
+        :type bool:
+        :return None:
+        """
+        self.curses = self.check_term_size(use_curses)
+        if self.curses:
+            self.stdscr = self.prepare_curses()
+        self.initiate_timer_thread()
 
     def stop_progress(self):
         """Function that stops the timer thread (and thus progress output)

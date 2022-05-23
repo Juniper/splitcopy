@@ -374,7 +374,7 @@ class SplitCopyShared:
         :return padded_string:
         :type string
         """
-        term_width = os.get_terminal_size()[0]
+        term_width = shutil.get_terminal_size()[0]
         padding = " " * (term_width - len(text))
         padded_string = f"{text}{padding}"
         return padded_string

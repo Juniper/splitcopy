@@ -157,7 +157,8 @@ class SplitCopyPut:
             if junos or evo:
                 command_list = self.scs.limit_check(self.copy_proto)
             print("starting transfer...")
-            self.progress = Progress(file_size, sfiles, self.use_curses)
+            self.progress = Progress(file_size, sfiles)
+            self.progress.start_progress(self.use_curses)
             # copy files to remote host
             self.hard_close = True
             loop_start = datetime.datetime.now()
