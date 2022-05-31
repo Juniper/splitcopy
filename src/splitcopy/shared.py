@@ -9,28 +9,41 @@
 # stdlib
 import concurrent.futures
 import datetime
-from ftplib import error_reply, error_temp, error_perm, error_proto
 import getpass
 import logging
 import os
 import re
 import shutil
-from socket import timeout as socket_timeout
-from socket import create_connection
 import sys
 import tempfile
 import traceback
 from contextlib import contextmanager
+from ftplib import error_perm, error_proto, error_reply, error_temp
 from math import ceil
+from socket import create_connection
+from socket import timeout as socket_timeout
 
 # 3rd party
 from paramiko.ssh_exception import SSHException
 
 # local modules
-from splitcopy.paramikoshell import SSHShell
 from splitcopy.ftp import FTP
+from splitcopy.paramikoshell import SSHShell
 
 logger = logging.getLogger(__name__)
+
+
+def pad_string(text):
+    """Function that pads a given string to the terminal width
+    :param text:
+    :type string:
+    :return padded_string:
+    :type string
+    """
+    term_width = shutil.get_terminal_size()[0]
+    padding = " " * (term_width - len(text))
+    padded_string = f"{text}{padding}"
+    return padded_string
 
 
 class SplitCopyShared:
@@ -353,7 +366,7 @@ class SplitCopyShared:
             self.remote_cleanup()
         if config_rollback and self.command_list:
             self.limits_rollback()
-        print(f"\r{self.pad_string('closing device connection')}")
+        print(f"\r{pad_string('closing device connection')}")
         self.sshshell.close()
         if hard_close:
             try:
@@ -366,18 +379,6 @@ class SplitCopyShared:
             raise os._exit(1)
         else:
             raise SystemExit(1)
-
-    def pad_string(self, text):
-        """Function that pads a given string to the terminal width
-        :param text:
-        :type string:
-        :return padded_string:
-        :type string
-        """
-        term_width = shutil.get_terminal_size()[0]
-        padding = " " * (term_width - len(text))
-        padded_string = f"{text}{padding}"
-        return padded_string
 
     def file_split_size(self, file_size, sshd_version, bsd_version, evo, copy_proto):
         """Function determines the optimal chunk size. This depends on the python
@@ -691,7 +692,7 @@ class SplitCopyShared:
         if remote_file:
             self.remote_file = remote_file
         if not silent:
-            print(f"\r{self.pad_string('deleting remote tmp directory...')}")
+            print(f"\r{pad_string('deleting remote tmp directory...')}")
         if self.remote_tmpdir is None:
             if self.get_op:
                 self.sshshell.run(f"rm -rf /var/tmp/splitcopy_{self.remote_file}.*")

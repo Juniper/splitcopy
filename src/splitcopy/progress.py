@@ -6,14 +6,17 @@
     LICENSE.
 """
 
+# stdlib on *nix, 3rd party on win32
+import curses
+
 # stdlib
 import logging
 import time
 from shutil import get_terminal_size
 from threading import Thread
 
-# stdlib on *nix, 3rd party on win32
-import curses
+# local modules
+from splitcopy.shared import pad_string
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,7 @@ class Progress:
         self.ts = time.time()
         self.chunk_size = str(chunks[0][1])
         self.totals = {}
-        self.error_list = ["","",""]
+        self.error_list = ["", "", ""]
         self.totals["sum_bytes_sent"] = 0
         self.totals["sum_completed"] = 0
         self.totals["sum_bytes_per_sec"] = 0.0
@@ -278,16 +281,20 @@ class Progress:
                 file_name_str = f"{file_name[0:6]}..{file_name[-2:]}"
             else:
                 file_name_str = file_name
-            sent_bytes, sent_bytes_unit = self.bytes_display(self.files[file_name]["sent_bytes"])
-            bytes_per_sec, bytes_per_sec_unit = self.bytes_display(self.files[file_name]["bytes_per_sec"])
+            sent_bytes, sent_bytes_unit = self.bytes_display(
+                self.files[file_name]["sent_bytes"]
+            )
+            bytes_per_sec, bytes_per_sec_unit = self.bytes_display(
+                self.files[file_name]["bytes_per_sec"]
+            )
             percent_done = self.files[file_name]["percent_done"]
             txt_lines.append(
                 f"{file_name_str} {self.progress_bar(percent_done)} "
                 f"{percent_done:>3}% {sent_bytes:>6.1f}{sent_bytes_unit} "
                 f"{bytes_per_sec:>6.1f}{bytes_per_sec_unit}/s"
             )
-        txt_lines.append(self.pad_string(""))
-        txt_lines.append(f"{self.pad_string(self.total_progress_str())}")
+        txt_lines.append(pad_string(""))
+        txt_lines.append(f"{pad_string(self.total_progress_str())}")
         # display the three most recent error strings
         err_idx = -3
         while err_idx < 0:
@@ -312,20 +319,8 @@ class Progress:
             # at the column the previous line ended at. This quickly becomes
             # illegible. Idea here is to put any error logs in a list
             # and only display the most recent additions in update_screen_contents()
-            padded_string = self.pad_string(error)
+            padded_string = pad_string(error)
             self.error_list.append(f"{padded_string}")
-
-    def pad_string(self, text):
-        """Function that pads a given string to the terminal width
-        :param text:
-        :type string:
-        :return padded_string:
-        :type string
-        """
-        term_width = get_terminal_size()[0]
-        padding = " " * (term_width - len(text))
-        padded_string = f"{text}{padding}"
-        return padded_string
 
     def start_progress(self, use_curses):
         """Function that starts the timer thread (and thus progress output
