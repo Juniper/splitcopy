@@ -21,6 +21,72 @@ from splitcopy.shared import pad_string
 logger = logging.getLogger(__name__)
 
 
+def percent_val(total_amount, partial_amount):
+    """returns a percentage
+    :param total_amount:
+    :type int:
+    :param partial_amount:
+    :type int:
+    :return int:
+    """
+    return int((100 / total_amount) * partial_amount)
+
+
+def progress_bar(percent_done):
+    """returns a graphical progress bar as a string
+    :param percent_done:
+    :type int:
+    :return string:
+    """
+    return f"[{'#' * int(percent_done/2)}{(50 - int(percent_done/2)) * ' '}]"
+
+
+def bytes_display(num_bytes):
+    """Function that returns a string identifying the size of the number
+    :param num_bytes:
+    :type int:
+    :return amount:
+    :type float:
+    :return unit:
+    :type string:
+    """
+    amount = 0.0
+    unit = ""
+    if num_bytes < 1024**2:
+        amount = num_bytes / 1024
+        unit = "KB"
+    elif num_bytes < 1024**3:
+        amount = num_bytes / 1024**2
+        unit = "MB"
+    elif num_bytes < 1024**4:
+        amount = num_bytes / 1024**3
+        unit = "GB"
+    return amount, unit
+
+
+def prepare_curses():
+    """Function to do some prep work to use curses.
+    :return stdscr:
+    :type _curses.window object:
+    """
+    stdscr = curses.initscr()
+    curses.noecho()
+    curses.cbreak()
+    return stdscr
+
+
+def abandon_curses():
+    """Function to exit curses and restore terminal to prior state.
+    :return None:
+    """
+    try:
+        curses.nocbreak()
+        curses.echo()
+        curses.endwin()
+    except (curses.error, AttributeError):
+        pass
+
+
 class Progress:
     """class which both FTP and SCPClient calls back to.
     provides a progress meter to the user
@@ -37,7 +103,6 @@ class Progress:
         :return None:
         """
         self.chunks = chunks
-        self.ts = time.time()
         self.chunk_size = str(chunks[0][1])
         self.totals = {}
         self.error_list = ["", "", ""]
@@ -47,6 +112,8 @@ class Progress:
         self.totals["percent_done"] = 0
         self.totals["total_file_size"] = total_file_size
         self.files = {}
+        self.curses = False
+        self.stdscr = None
         for chunk in chunks:
             file_name = chunk[0]
             self.files[file_name] = {}
@@ -160,7 +227,7 @@ class Progress:
         :type int:
         :return None:
         """
-        percent_done = self.percent_val(file_size, sent)
+        percent_done = percent_val(file_size, sent)
         if self.files[file_name]["percent_done"] != percent_done:
             self.files[file_name]["percent_done"] = percent_done
 
@@ -173,12 +240,12 @@ class Progress:
         sum_bytes_sent = 0
         sum_completed = 0
         total_file_size = self.totals["total_file_size"]
-        for file in self.files:
-            sum_bytes_sent += self.files[file]["sent_bytes"]
-            sum_completed += self.files[file]["complete"]
+        for file in self.files.items():
+            sum_bytes_sent += file["sent_bytes"]
+            sum_completed += file["complete"]
         self.totals["sum_bytes_sent"] = sum_bytes_sent
         self.totals["sum_completed"] = sum_completed
-        percent_done = self.percent_val(total_file_size, sum_bytes_sent)
+        percent_done = percent_val(total_file_size, sum_bytes_sent)
         self.totals["percent_done"] = percent_done
 
     def total_progress_str(self):
@@ -192,9 +259,9 @@ class Progress:
         sum_bytes_per_sec = self.totals["sum_bytes_per_sec"]
         sum_bytes_sent = self.totals["sum_bytes_sent"]
         total_file_size = self.totals["total_file_size"]
-        sum_bytes, sum_bytes_unit = self.bytes_display(sum_bytes_sent)
-        total_bytes, total_bytes_unit = self.bytes_display(total_file_size)
-        rate_per_sec, rate_unit = self.bytes_display(sum_bytes_per_sec)
+        sum_bytes, sum_bytes_unit = bytes_display(sum_bytes_sent)
+        total_bytes, total_bytes_unit = bytes_display(total_file_size)
+        rate_per_sec, rate_unit = bytes_display(sum_bytes_per_sec)
         output = (
             f"{str(percent_done)}% done {sum_bytes:.1f}{sum_bytes_unit}"
             f"/{total_bytes:.1f}{total_bytes_unit} "
@@ -202,24 +269,6 @@ class Progress:
             f"({sum_completed}/{len(self.chunks)} chunks completed)"
         )
         return output
-
-    def percent_val(self, total_amount, partial_amount):
-        """returns a percentage
-        :param total_amount:
-        :type int:
-        :param partial_amount:
-        :type int:
-        :return int:
-        """
-        return int((100 / total_amount) * partial_amount)
-
-    def progress_bar(self, percent_done):
-        """returns a graphical progress bar as a string
-        :param percent_done:
-        :type int:
-        :return string:
-        """
-        return f"[{'#' * int(percent_done/2)}{(50 - int(percent_done/2)) * ' '}]"
 
     def rates_update(self):
         """updates the transfer rates per chunk and total. Called on a 1sec periodic
@@ -248,28 +297,6 @@ class Progress:
         self.files[file_name]["sent_bytes"] = 0
         self.files[file_name]["complete"] = 0
 
-    def bytes_display(self, bytes):
-        """Function that returns a string identifying the size of the number
-        :param bytes:
-        :type int:
-        :return amount:
-        :type float:
-        :return unit:
-        :type string:
-        """
-        amount = 0.0
-        unit = ""
-        if bytes < 1024**2:
-            amount = bytes / 1024
-            unit = "KB"
-        elif bytes < 1024**3:
-            amount = bytes / 1024**2
-            unit = "MB"
-        elif bytes < 1024**4:
-            amount = bytes / 1024**3
-            unit = "GB"
-        return amount, unit
-
     def update_screen_contents(self):
         """Function collates the information to be drawn by curses
         :return None:
@@ -281,15 +308,15 @@ class Progress:
                 file_name_str = f"{file_name[0:6]}..{file_name[-2:]}"
             else:
                 file_name_str = file_name
-            sent_bytes, sent_bytes_unit = self.bytes_display(
+            sent_bytes, sent_bytes_unit = bytes_display(
                 self.files[file_name]["sent_bytes"]
             )
-            bytes_per_sec, bytes_per_sec_unit = self.bytes_display(
+            bytes_per_sec, bytes_per_sec_unit = bytes_display(
                 self.files[file_name]["bytes_per_sec"]
             )
             percent_done = self.files[file_name]["percent_done"]
             txt_lines.append(
-                f"{file_name_str} {self.progress_bar(percent_done)} "
+                f"{file_name_str} {progress_bar(percent_done)} "
                 f"{percent_done:>3}% {sent_bytes:>6.1f}{sent_bytes_unit} "
                 f"{bytes_per_sec:>6.1f}{bytes_per_sec_unit}/s"
             )
@@ -303,7 +330,7 @@ class Progress:
         try:
             self.redraw_screen(txt_lines)
         except curses.error:
-            self.abandon_curses()
+            abandon_curses()
             self.curses = False
 
     def print_error(self, error):
@@ -331,7 +358,7 @@ class Progress:
         """
         self.curses = self.check_term_size(use_curses)
         if self.curses:
-            self.stdscr = self.prepare_curses()
+            self.stdscr = prepare_curses()
         self.initiate_timer_thread()
 
     def stop_progress(self):
@@ -340,28 +367,7 @@ class Progress:
         :return None:
         """
         self.stop_timer_thread()
-        self.abandon_curses()
-
-    def prepare_curses(self):
-        """Function to do some prep work to use curses.
-        :return stdscr:
-        :type _curses.window object:
-        """
-        stdscr = curses.initscr()
-        curses.noecho()
-        curses.cbreak()
-        return stdscr
-
-    def abandon_curses(self):
-        """Function to exit curses and restore terminal to prior state.
-        :return None:
-        """
-        try:
-            curses.nocbreak()
-            curses.echo()
-            curses.endwin()
-        except (curses.error, AttributeError):
-            pass
+        abandon_curses()
 
     def redraw_screen(self, txt_lines):
         """Method to redraw the screen using curses library.
