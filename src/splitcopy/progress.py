@@ -159,7 +159,7 @@ class Progress:
         :param thread_id:
         :type int: # required for Thread(), otherwise unused
         :param stop:
-        :type bool: # allows loop to be exited gracefully
+        :type function: # allows loop to be exited gracefully
         :return None:
         """
         while True:
@@ -240,7 +240,7 @@ class Progress:
         sum_bytes_sent = 0
         sum_completed = 0
         total_file_size = self.totals["total_file_size"]
-        for file in self.files.items():
+        for file in self.files.values():
             sum_bytes_sent += file["sent_bytes"]
             sum_completed += file["complete"]
         self.totals["sum_bytes_sent"] = sum_bytes_sent
