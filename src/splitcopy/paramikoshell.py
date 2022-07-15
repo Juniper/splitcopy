@@ -8,32 +8,36 @@
 
 # stdlib
 import datetime
+import getpass
+import logging
 import os
 import re
+import select
 import socket
-import getpass
-import warnings
-import logging
-import traceback
 import sys
-from select import select
+import traceback
+import warnings
 
-# 3rd Party
-import paramiko
-from cryptography import utils
+# 3rd party exceptions
+from cryptography.utils import CryptographyDeprecationWarning
 from paramiko.ssh_exception import (
-    SSHException,
-    PasswordRequiredException,
     AuthenticationException,
     BadAuthenticationType,
+    PasswordRequiredException,
+    SSHException,
 )
 
+# 3rd party
+warnings.simplefilter("ignore", CryptographyDeprecationWarning)
+import paramiko
+
 logging.getLogger("paramiko").setLevel(logging.CRITICAL)
-warnings.simplefilter("ignore", utils.CryptographyDeprecationWarning)
 
 _SHELL_PROMPT = re.compile(r"(% |# |\$ |> |%\t)$")
 _SELECT_WAIT = 0.1
 _RECVSZ = 1024
+_EXIT_CODE = re.compile(r"\r\n0\r\n", re.MULTILINE)
+_PASTE_BRACKET = re.compile(r"\x1b\[\?2004l\r|\x1b\[\?2004h", re.MULTILINE)
 
 logger = logging.getLogger(__name__)
 
@@ -50,19 +54,21 @@ class SSHShell:
         self.ssh_port = self.kwargs.get("ssh_port")
         self._chan = None
         self._transport = None
-        self.socket_open()
-        self.transport_open()
 
     def __enter__(self):
+        self.socket_open()
+        self.transport_open()
         return self
 
     def __exit__(self, exc_ty, exc_val, exc_tb):
-        self.close()
+        if self._transport is not None:
+            # closes the transport and underlying socket
+            self.close_transport()
 
     def socket_open(self):
         """
         wrapper around proxy or direct methods
-        :returns None:
+        :return None:
         """
         logger.info("entering socket_open()")
         self.socket = self.socket_proxy()
@@ -72,8 +78,8 @@ class SSHShell:
     def socket_proxy(self):
         """
         checks the .ssh/config file for any proxy commands to reach host
-        :returns: sock
-        :type: subprocess
+        :return sock:
+        :type subprocess:
         """
         logger.info("entering socket_proxy()")
         sock = None
@@ -90,8 +96,8 @@ class SSHShell:
     def socket_direct(self):
         """
         open a socket to remote host
-        :returns: sock
-        :type: socket object
+        :return sock:
+        :type socket object:
         """
         logger.info("entering socket_direct()")
         sock = None
@@ -109,11 +115,11 @@ class SSHShell:
         """
         attempt to decode the private key
         :param pkey_type: key algorithm
-        :type: string
+        :type string:
         :param pkey_path: path to key file
-        :type: string
-        :returns: Pkey object
-        :raises: PasswordRequiredException if key cannot be decoded
+        :type string:
+        :return Pkey object:
+        :raises PasswordRequiredException: if key cannot be decoded
         """
         pkey = None
         try:
@@ -138,7 +144,7 @@ class SSHShell:
     def transport_open(self):
         """
         opens a transport to the host
-        :returns: None
+        :return: None
         """
         self._transport = paramiko.Transport(self.socket)
         self._transport.start_client()
@@ -146,7 +152,8 @@ class SSHShell:
     def worker_thread_auth(self):
         """
         authentication has succeeded previously, simplify nth time around
-        :returns: bool
+        :return result:
+        :type bool:
         """
         result = False
         auth_method = self.kwargs.get("auth_method")
@@ -170,7 +177,8 @@ class SSHShell:
         * publickey auth
         * keyboard-interactive auth
         * password auth
-        :returns: bool
+        :return result:
+        :type bool:
         """
         logger.info("entering main_thread_auth()")
         allowed_types = None
@@ -211,9 +219,8 @@ class SSHShell:
     def ask_password(self):
         """
         obtains the password for PasswordAuthentication
-        :returns: password
-        :type: string
-        :returns: None
+        :return password:
+        :type string:
         """
         logger.info("entering ask_password()")
         password = getpass.getpass(
@@ -225,8 +232,9 @@ class SSHShell:
     def password_auth(self):
         """
         attempts Password Authentication
-        :raises: AuthenticationException if auth fails
-        :returns: bool
+        :raises AuthenticationException: if auth fails
+        :return result:
+        :type bool:
         """
         logger.info("entering password_auth()")
         result = False
@@ -242,9 +250,9 @@ class SSHShell:
         return result
 
     def auth_using_keyb(self):
-        """
-        Attempts keyboard-interactive authentication
-        :returns: bool
+        """Attempts keyboard-interactive authentication
+        :return result:
+        :type bool:
         """
         logger.info("entering auth_using_keyb()")
         result = False
@@ -263,7 +271,7 @@ class SSHShell:
             username = self.kwargs["username"]
             self._transport.auth_interactive(username, handler)
             result = True
-        except AuthenticationException:
+        except (SSHException, AuthenticationException):
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
             logger.info("keyboard-interactive authentication failed")
         return result
@@ -271,7 +279,8 @@ class SSHShell:
     def auth_using_agent(self):
         """
         Attempts publickey authentication using keys held by ssh-agent
-        :returns: bool
+        :return result:
+        :type bool:
         """
         logger.info("entering auth_using_agent()")
         agent = paramiko.Agent()
@@ -293,7 +302,8 @@ class SSHShell:
         """
         Attempts publickey authentication using keys found in ~/.ssh
         Iterates over any keys found
-        :returns: bool
+        :return result:
+        :type bool:
         """
         logger.info("entering auth_using_keyfiles()")
         pkey_types = {
@@ -324,10 +334,11 @@ class SSHShell:
         """
         Attempts authentication using specified key and type
         :param pkey_type: key algorithm
-        :type: string
+        :type string:
         :param pkey_path: path to key file
-        :type: string
-        :returns: bool
+        :type string:
+        :return result:
+        :type bool:
         """
         result = False
         pkey = None
@@ -350,7 +361,8 @@ class SSHShell:
         """
         As key type is unknown, attempt publickey authentication
         using provided keyfile by looping through supported types
-        :returns: bool
+        :return result:
+        :type bool:
         """
         logger.info("entering auth_using_provided_keyfile()")
         pkey_path = self.kwargs["key_filename"]
@@ -368,7 +380,8 @@ class SSHShell:
     def is_authenticated(self):
         """
         verifies if authentication was successful
-        :returns: bool
+        :return result:
+        :type bool:
         """
         result = False
         logger.info("entering is_authenticated()")
@@ -379,7 +392,7 @@ class SSHShell:
     def channel_open(self):
         """
         opens a channel of type 'session' over existing transport
-        :returns: None
+        :return None:
         """
         logger.info("entering channel_open()")
         self._chan = self._transport.open_session()
@@ -387,7 +400,7 @@ class SSHShell:
     def invoke_shell(self):
         """
         opens a pty on remote host
-        :returns: None
+        :return None:
         """
         logger.info("entering invoke_shell()")
         self._chan.get_pty()
@@ -397,16 +410,16 @@ class SSHShell:
         """
         reads data off the socket
         :param timeout: amount of time before timeout is raised
-        :type: int
+        :type int:
         :returns output: stdout from the cmd
-        :type: string
+        :type string:
         """
         chan = self._chan
         now = datetime.datetime.now()
         timeout_time = now + datetime.timedelta(seconds=timeout)
         output = ""
         while not _SHELL_PROMPT.search(output):
-            rd, wr, err = select([chan], [], [], _SELECT_WAIT)
+            rd, wr, err = select.select([chan], [], [], _SELECT_WAIT)
             if rd:
                 data = chan.recv(_RECVSZ)
                 output += data.decode()
@@ -418,7 +431,7 @@ class SSHShell:
         """
         ensures session stays up if inactive for long period
         not suitable for scp, will terminate session with BadUseError if enabled
-        :returns: None
+        :return None:
         """
         self._transport.set_keepalive(60)
 
@@ -426,8 +439,8 @@ class SSHShell:
         """
         Sends a cmd + newline char over the channel
         :param cmd: cmd to be sent over the channel
-        :type: string
-        :returns: None
+        :type string:
+        :return None:
         """
         self._chan.send(f"{cmd}\n")
         logger.info(f"sent '{cmd}'")
@@ -435,7 +448,7 @@ class SSHShell:
     def close(self):
         """
         terminates both the channel (if present) and the underlying transport
-        :returns: None
+        :return None:
         """
         self.close_channel()
         self.close_transport()
@@ -443,7 +456,7 @@ class SSHShell:
     def close_channel(self):
         """
         terminates the channel
-        :returns: None
+        :return None:
         """
         try:
             self._chan.close()
@@ -453,14 +466,18 @@ class SSHShell:
     def close_transport(self):
         """
         terminates the underlying transport
-        :returns: None
+        :return None:
         """
-        self._transport.close()
+        try:
+            self._transport.close()
+        except AttributeError:
+            pass
 
     def restart_pty(self):
         """
         closes then re-opens the channel using the existing transport
         then opens a new pty
+        :return None:
         """
         if self._chan is not None:
             self._chan.close()
@@ -471,25 +488,27 @@ class SSHShell:
         """
         sends a cmd to remote host, if exitcode is True will check its exit status
         :param cmd: cmd to run on remote host
-        :type: string
+        :type string:
         :param timeout: amount of time before timeout is raised
-        :type: float
+        :type float:
         :param exitcode: toggles whether to check for exit status or not
-        :type: bool
+        :type bool:
         :return result: whether successful or not
-        :type: bool
+        :type bool:
         :return stdout: the output of the command
-        :type: string
+        :type string:
         """
         result = False
         stdout = ""
         try:
             self.write(cmd)
             stdout = self.stdout_read(timeout)
+            stdout = re.sub(_PASTE_BRACKET, "", stdout)
             if exitcode:
                 self.write("echo $?")
                 rc = self.stdout_read(timeout)
-                if re.search(r"\r\n0\r\n", rc, re.MULTILINE):
+                rc = re.sub(_PASTE_BRACKET, "", rc)
+                if re.search(_EXIT_CODE, rc):
                     result = True
         except TimeoutError:
             stdout = f"timeout running '{cmd}'"

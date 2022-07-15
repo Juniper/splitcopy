@@ -14,13 +14,13 @@ import logging
 import os
 import re
 import shutil
+import socket
 import sys
 import tempfile
 import traceback
 from contextlib import contextmanager
 from ftplib import error_perm, error_proto, error_reply, error_temp
 from math import ceil
-from socket import create_connection
 from socket import timeout as socket_timeout
 
 # 3rd party
@@ -28,7 +28,6 @@ from paramiko.ssh_exception import SSHException
 
 # local modules
 from splitcopy.ftp import FTP
-from splitcopy.paramikoshell import SSHShell
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +68,10 @@ class SplitCopyShared:
         self.remote_tmpdir = None
         self.sshshell = None
 
-    def connect(self, **ssh_kwargs):
+    def connect(self, ssh_lib, **ssh_kwargs):
         """Function to open an ssh session to a remote host
+        :param ssh_lib:
+        :type class:
         :param ssh_kwargs:
         :type dict:
         :return self.sshshell:
@@ -79,7 +80,9 @@ class SplitCopyShared:
         :type dict:
         """
         try:
-            self.sshshell = SSHShell(**ssh_kwargs)
+            self.sshshell = ssh_lib(**ssh_kwargs)
+            self.sshshell.socket_open()
+            self.sshshell.transport_open()
             if self.sshshell.main_thread_auth():
                 self.sshshell.channel_open()
                 self.sshshell.invoke_shell()
@@ -133,7 +136,7 @@ class SplitCopyShared:
         logger.info(f"copy_proto == {copy_proto}")
         return copy_proto, passwd
 
-    def ftp_port_check(self):
+    def ftp_port_check(self, socket_lib=socket):
         """Function that checks whether the ftp port is open
         :return result:
         :type bool:
@@ -141,9 +144,9 @@ class SplitCopyShared:
         result = False
         print("attempting FTP authentication...")
         try:
-            with create_connection((self.host, 21), 10) as ftp_sock:
-                logger.info("ftp port is open")
-                result = True
+            socket_lib.create_connection((self.host, 21), 10)
+            logger.info("ftp port is open")
+            result = True
         except socket_timeout:
             print("ftp socket timed out, switching to scp for transfer")
         except ConnectionRefusedError:
@@ -151,7 +154,7 @@ class SplitCopyShared:
 
         return result
 
-    def ftp_login_check(self, passwd):
+    def ftp_login_check(self, passwd, ftp_lib=FTP):
         """Function that verifies ftp authentication on remote host
         :param passwd:
         :type string:
@@ -165,7 +168,7 @@ class SplitCopyShared:
             "passwd": passwd,
             "timeout": 10,
         }
-        with FTP(**kwargs) as ftp:
+        with ftp_lib(**kwargs) as ftp:
             result = True
         return result
 
@@ -182,6 +185,7 @@ class SplitCopyShared:
         :type float:
         """
         logger.info("entering which_os()")
+        junos = False
         evo = False
         bsd_version = float()
         sshd_version = float()
@@ -190,7 +194,7 @@ class SplitCopyShared:
         if not result:
             err = "failed to determine remote host os, it must be *nix based"
             self.close(err_str=err)
-        host_os = stdout[0].split("\n")[0].rstrip()
+        host_os = stdout.split("\n")[1].rstrip()
         if host_os == "Linux" and self.evo_os():
             evo = True
         else:
@@ -291,14 +295,6 @@ class SplitCopyShared:
                     )
                 )
 
-    def second_elem(self, elem):
-        """Function used for key sort
-        :param elem:
-        :type list:
-        :return: the 2nd element of the list
-        """
-        return elem[1]
-
     def req_sha_binaries(self, sha_hash):
         """ensures required binaries for sha hash creation exist on remote host
         :param sha_hash:
@@ -328,7 +324,7 @@ class SplitCopyShared:
             bins = [("sha1sum", 1), ("sha1", 1), ("shasum", 1)]
             sha_bins.extend(bins)
 
-        sha_bins = sorted(set(sha_bins), reverse=True, key=self.second_elem)
+        sha_bins = sorted(set(sha_bins), reverse=True, key=lambda x: (x[1], x[0]))
         logger.info(sha_bins)
 
         for req_bin in sha_bins:
@@ -390,10 +386,11 @@ class SplitCopyShared:
         """
         logger.info("entering file_split_size()")
 
+        cpu_count = 1
         try:
             cpu_count = os.cpu_count()
         except NotImplementedError:
-            cpu_count = 1
+            pass
         max_workers = min(32, cpu_count * 5)
 
         # each uid can have max of 64 processes
@@ -401,14 +398,15 @@ class SplitCopyShared:
         if copy_proto == "ftp":
             # ftp creates 1 user process per chunk, no modulation required
             split_size = ceil(file_size / max_workers)
-        elif max_workers <= 10:
-            # 1 or 2 cpu cores, 5 or 10 workers will create 20-40 pids
+        elif max_workers == 5:
+            # 1 cpu core, 5 workers will create <= 20 pids
             # no modulation required
             split_size = ceil(file_size / max_workers)
         else:
             # scp to FreeBSD 6 based junos creates 3 user processes per chunk
             # scp to FreeBSD 10+ based junos creates 2 user processes per chunk
             # +1 user process if openssh version is >= 7.4
+            pid_count = 0
             max_pids = 40
             if sshd_version >= 7.4 and bsd_version == 6.0:
                 pid_count = 4
@@ -420,9 +418,15 @@ class SplitCopyShared:
                 pid_count = 2
             elif evo:
                 pid_count = 3
+
+            if pid_count:
+                max_workers = round(max_pids / pid_count)
             else:
-                pid_count = 4
-            max_workers = round(max_pids / pid_count)
+                # sshd config defaults
+                # Maxsessions = 10, MaxStartups = 10:30:100
+                # value here should not hit these limits
+                max_workers = 5
+
             split_size = ceil(file_size / max_workers)
 
         # concurrent.futures.ThreadPoolExecutor can be a limiting factor
@@ -474,14 +478,9 @@ class SplitCopyShared:
         result, stdout = self.sshshell.run(f"df -k {self.remote_dir}")
         if not result:
             self.close(err_str="failed to determine remote disk space available")
-        df_num = len(stdout.split("\n")) - 2
-        if re.match(r"^ ", stdout.split("\n")[df_num]):
-            split_num = 2
-        else:
-            split_num = 3
         try:
-            avail_blocks = stdout.split("\n")[df_num].split()[split_num].rstrip()
-        except Exception:
+            avail_blocks = re.search(r" ([0-9]+) +[0-9]+ +[0-9]+ +", stdout).group(1)
+        except AttributeError:
             err = "unable to determine available blocks on remote host"
             self.close(err_str=err)
 
@@ -578,52 +577,53 @@ class SplitCopyShared:
         """
         return self.local_tmpdir
 
-    def limit_check(self, copy_proto):
-        """Function that checks the remote junos/evo hosts configuration to
-        determine whether there are any ftp or ssh connection/rate limits defined.
-        If found, these configuration lines will be deactivated
-        :param copy_proto:
-        :type string:
-        :return self.command_list or None:
+    def find_configured_limits(self, config_stanzas):
+        """Function that retrieves any configuration stazas that implement
+        rate/connection limits.
+        :param config_stanzas:
         :type list:
+        :return cli_config:
+        :type string:
         """
-        logger.info("entering limit_check()")
-        config_stanzas = ["groups", "system services", "system login"]
-        limits = ["services ssh connection-limit", "services ssh rate-limit"]
-        if copy_proto == "ftp":
-            limits.append("services ftp connection-limit")
-            limits.append("services ftp rate-limit")
-        retry_options = "system login retry-options"
-
-        # check for presence of rate/connection limits
         cli_config = ""
         for stanza in config_stanzas:
             result, stdout = self.sshshell.run(
                 f'cli -c "show configuration {stanza} | display set | no-more"'
             )
             cli_config += stdout
-        if cli_config:
-            conf_list = cli_config.split("\r\n")
-        else:
-            return None
+        return cli_config
+
+    def limit_check(self, copy_proto):
+        """Function that checks the remote junos/evo hosts configuration to
+        determine whether there are any ftp or ssh connection/rate limits defined.
+        If found, these configuration lines will be deactivated
+        :param copy_proto:
+        :type string:
+        :return self.command_list:
+        :type list:
+        """
+        logger.info("entering limit_check()")
+        config_stanzas = ["groups", "system services", "system login"]
+        retry_options = "system login retry-options"
+        limits = ["services ssh connection-limit", "services ssh rate-limit"]
+        if copy_proto == "ftp":
+            limits.append("services ftp connection-limit")
+            limits.append("services ftp rate-limit")
+        cli_config = self.find_configured_limits(config_stanzas)
 
         for limit in limits:
-            if re.search(rf"^set .* {limit} [0-9]", cli_config, re.MULTILINE) is None:
-                continue
-            for conf_statement in conf_list:
-                if re.match(rf"set .* {limit} [0-9]", conf_statement):
-                    conf_line = re.sub(" [0-9]+$", "", conf_statement)
-                    conf_line = re.sub(r"^set", "deactivate", conf_line)
-                    self.command_list.append(f"{conf_line};")
-        if re.search(rf"^set .* {retry_options}", cli_config, re.MULTILINE) is not None:
-            for conf_statement in conf_list:
-                if re.match(rf"set .* {retry_options}", conf_statement):
-                    conf_line = re.match(
-                        rf"(set .* {retry_options})", conf_statement
-                    ).group(1)
-                    conf_line = re.sub(r"^set", "deactivate", conf_line)
-                    if conf_line not in self.command_list:
-                        self.command_list.append(f"{conf_line};")
+            re_limit_multiline = re.compile(rf"^set .*{limit} [0-9]", re.MULTILINE)
+            conf_list_limits = re.findall(re_limit_multiline, cli_config)
+            for conf_statement in conf_list_limits:
+                conf_line = re.sub(" [0-9]+$", "", conf_statement)
+                conf_line = re.sub(r"^set", "deactivate", conf_line)
+                self.command_list.append(f"{conf_line};")
+        re_retry_multiline = re.compile(rf"^set .*{retry_options}", re.MULTILINE)
+        conf_list_retry_options = re.findall(re_retry_multiline, cli_config)
+        for conf_statement in conf_list_retry_options:
+            conf_line = re.match(rf"(set .*{retry_options})", conf_statement).group(1)
+            conf_line = re.sub(r"^set", "deactivate", conf_line)
+            self.command_list.append(f"{conf_line};")
 
         # if limits were configured, deactivate them
         if self.command_list:
@@ -648,9 +648,7 @@ class SplitCopyShared:
                     f"configuration. output was:\n{stdout}"
                 )
                 self.close(err_str=err)
-            return self.command_list
-        else:
-            return None
+        return self.command_list
 
     def limits_rollback(self):
         """Function to revert config changes made to remote host
@@ -678,7 +676,7 @@ class SplitCopyShared:
             )
 
     def remote_cleanup(self, remote_dir=None, remote_file=None, silent=False):
-        """Functiont that deletes the tmp directory on remote host
+        """Function that deletes the tmp directory on remote host
         :param remote_dir:
         :type string:
         :param remote_file:

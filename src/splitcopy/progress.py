@@ -29,7 +29,7 @@ def percent_val(total_amount, partial_amount):
     :type int:
     :return int:
     """
-    return int((100 / total_amount) * partial_amount)
+    return int(round(100 / total_amount * partial_amount, 2))
 
 
 def progress_bar(percent_done):
@@ -92,28 +92,26 @@ class Progress:
     provides a progress meter to the user
     """
 
-    def __init__(self, total_file_size, chunks):
-        """Initialize the class
-        :param total_file_size:
-        :type int:
+    def __init__(self):
+        """Initialize the class"""
+        self.chunks = []
+        self.chunk_size = ""
+        self.totals = {}
+        self.error_list = ["", "", ""]
+        self.files = {}
+        self.curses = False
+        self.stdscr = None
+        self.timer = None
+        self.stop_timer = False
+
+    def add_chunks(self, total_file_size, chunks):
+        """Function that creates required data structures
         :param chunks:
         :type list:
-        :param curses:
-        :type bool:
         :return None:
         """
         self.chunks = chunks
         self.chunk_size = str(chunks[0][1])
-        self.totals = {}
-        self.error_list = ["", "", ""]
-        self.totals["sum_bytes_sent"] = 0
-        self.totals["sum_completed"] = 0
-        self.totals["sum_bytes_per_sec"] = 0.0
-        self.totals["percent_done"] = 0
-        self.totals["total_file_size"] = total_file_size
-        self.files = {}
-        self.curses = False
-        self.stdscr = None
         for chunk in chunks:
             file_name = chunk[0]
             self.files[file_name] = {}
@@ -122,8 +120,11 @@ class Progress:
             self.files[file_name]["bytes_per_sec"] = 0.0
             self.files[file_name]["percent_done"] = 0
             self.files[file_name]["complete"] = 0
-        self.timer = None
-        self.stop_timer = False
+        self.totals["sum_bytes_sent"] = 0
+        self.totals["sum_completed"] = 0
+        self.totals["sum_bytes_per_sec"] = 0.0
+        self.totals["percent_done"] = 0
+        self.totals["total_file_size"] = total_file_size
 
     def check_term_size(self, result):
         """function that checks whether curses can be supported or not
@@ -147,13 +148,13 @@ class Progress:
         :return None:
         """
         self.timer = Thread(
-            name="one_sec_timer",
-            target=self.one_sec_timer,
+            name="refresh_timer",
+            target=self.refresh_timer,
             args=(1, lambda: self.stop_timer),
         )
         self.timer.start()
 
-    def one_sec_timer(self, thread_id, stop):
+    def refresh_timer(self, thread_id, stop):
         """Function that calls other functions to update data that is then displayed
         to the user once a second
         :param thread_id:
@@ -247,6 +248,7 @@ class Progress:
         self.totals["sum_completed"] = sum_completed
         percent_done = percent_val(total_file_size, sum_bytes_sent)
         self.totals["percent_done"] = percent_done
+        logger.debug(self.totals)
 
     def total_progress_str(self):
         """returns a single line with progress info such as:

@@ -23,19 +23,19 @@ import traceback
 from math import ceil
 
 # 3rd party
-from scp import SCPClient
 from paramiko.ssh_exception import SSHException
+from scp import SCPClient
 
 # local modules
+from splitcopy.ftp import FTP
 from splitcopy.paramikoshell import SSHShell
 from splitcopy.progress import Progress
-from splitcopy.ftp import FTP
 from splitcopy.shared import SplitCopyShared
-
 
 logger = logging.getLogger(__name__)
 
-_BUF_SIZE_READ = 131072
+# use st_blksize
+_BUF_SIZE_READ = 1024 * 8
 _BUF_SIZE = 1024
 
 
@@ -64,16 +64,12 @@ class SplitCopyGet:
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
         self.hard_close = False
-        self.progress = None
+        self.progress = Progress()
 
     def handlesigint(self, sigint, stack):
         logger.debug(f"signal {sigint} received, stack:\n{stack}")
         self.mute = True
-        try:
-            self.progress.stop_progress()
-        except AttributeError:
-            # in case SigInt raised prior to Progress()
-            pass
+        self.progress.stop_progress()
         self.scs.close(hard_close=self.hard_close)
 
     def get(self):
@@ -97,7 +93,7 @@ class SplitCopyGet:
         signal.signal(signal.SIGINT, self.handlesigint)
 
         # connect to host
-        self.sshshell, ssh_kwargs = self.scs.connect(**ssh_kwargs)
+        self.sshshell, ssh_kwargs = self.scs.connect(SSHShell, **ssh_kwargs)
 
         # determine remote host os
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
@@ -141,47 +137,33 @@ class SplitCopyGet:
         remote_tmpdir = self.scs.mkdir_remote()
 
         # split file into chunks
-        self.split_file_remote(file_size, split_size, remote_tmpdir)
+        self.split_file_remote(SCPClient, file_size, split_size, remote_tmpdir)
 
-        # add chunk names to a list
-        result, stdout = self.sshshell.run(f"ls -l {remote_tmpdir}/")
-        if not result:
-            self.scs.close(
-                err_str="couldn't get list of files from host",
-                hard_close=self.hard_close,
-            )
-        remote_files = stdout.split("\r\n")
-        sfiles = []
-        for sfile in remote_files:
-            if fnmatch.fnmatch(sfile, f"* {self.remote_file}*"):
-                sfile = sfile.split()
-                sfiles.append([sfile[-1], int(sfile[-5])])
-        if not sfiles:
-            self.scs.close(
-                err_str="file split operation failed",
-                hard_close=self.hard_close,
-            )
-        logger.info(f"# of chunks = {len(sfiles)}")
+        # add chunk names to a list, pass this info to Progress
+        chunks = self.get_chunk_info(remote_tmpdir)
+        self.progress.add_chunks(file_size, chunks)
 
         # begin connection/rate limit check and transfer process
         command_list = []
         if junos or evo:
             command_list = self.scs.limit_check(self.copy_proto)
         print("starting transfer...")
-        self.progress = Progress(file_size, sfiles)
         self.progress.start_progress(self.use_curses)
         with self.scs.tempdir():
             # copy files from remote host
             self.hard_close = True
             loop_start = datetime.datetime.now()
-            loop = asyncio.get_event_loop()
+            loop = asyncio.new_event_loop()
             tasks = []
-            for sfile in sfiles:
+            for chunk in chunks:
                 task = loop.run_in_executor(
                     executor,
                     functools.partial(
                         self.get_files,
-                        sfile,
+                        FTP,
+                        SSHShell,
+                        SCPClient,
+                        chunk,
                         remote_tmpdir,
                         ssh_kwargs,
                     ),
@@ -197,8 +179,11 @@ class SplitCopyGet:
                 )
             finally:
                 loop.close()
-                self.hard_close = False
-                self.progress.stop_progress()
+
+            self.hard_close = False
+            while self.progress.totals["percent_done"] != 100:
+                time.sleep(0.1)
+            self.progress.stop_progress()
 
             print("\ntransfer complete")
             loop_end = datetime.datetime.now()
@@ -224,12 +209,58 @@ class SplitCopyGet:
         self.sshshell.close()
         return loop_start, loop_end
 
-    def validate_remote_path_get(self):
+    def get_chunk_info(self, remote_tmpdir):
+        """Function that obtains the remote chunk file size and names
+        :param remote_tmpdir:
+        :type string:
+        :return chunks:
+        :type list:
         """
-        path must be a full path, expand as required
+        logger.info("entering get_chunk_info")
+        result, stdout = self.sshshell.run(f"ls -l {remote_tmpdir}/")
+        if not result:
+            self.scs.close(
+                err_str="couldn't get list of files from host",
+                hard_close=self.hard_close,
+            )
+        lines = stdout.splitlines()
+        chunks = []
+        for line in lines:
+            if fnmatch.fnmatch(line, f"* {self.remote_file}*"):
+                chunk = line.split()
+                chunks.append([chunk[-1], int(chunk[-5])])
+        if not chunks:
+            self.scs.close(
+                err_str="failed to retreive chunk names and sizes",
+                hard_close=self.hard_close,
+            )
+        logger.debug(chunks)
+        return chunks
+
+    def validate_remote_path_get(self):
+        """path must be a full path, expand as required
         :return: None
         """
         logger.info("entering validate_remote_path_get()")
+        try:
+            self.path_startswith_tilda()
+            self.verify_path_is_not_directory()
+            self.verify_file_exists()
+            self.verify_file_is_readable()
+            self.verify_file_is_symlink()
+
+        except ValueError as err:
+            self.scs.close(
+                err_str=err,
+                hard_close=self.hard_close,
+            )
+
+    def path_startswith_tilda(self):
+        """Function that expands ~ based path
+        :return None:
+        :raises ValueError: if remote cmd fails
+        """
+        logger.info("entering path_startswith_tilda")
         if re.match(r"~", self.remote_dir):
             result, stdout = self.sshshell.run(f"ls -d {self.remote_dir}")
             if result:
@@ -239,36 +270,41 @@ class SplitCopyGet:
                     f"remote_dir now = {self.remote_dir}, remote_file now = {self.remote_file}"
                 )
             else:
-                self.scs.close(
-                    err_str=f"unable to expand remote path {self.remote_path}",
-                    hard_close=self.hard_close,
-                )
+                raise ValueError(f"unable to expand remote path {self.remote_path}")
 
-        # bail if its a directory
+    def verify_path_is_not_directory(self):
+        """Function that verifies remote path is not a directory
+        :return None:
+        :raises ValueError: if path is a directory
+        """
         result, stdout = self.sshshell.run(f"test -d {self.remote_path}")
         if result:
-            self.scs.close(
-                err_str="src path is a directory, not a file",
-                hard_close=self.hard_close,
-            )
+            raise ValueError("src path is a directory, not a file")
 
-        # check if remote file exists
+    def verify_file_exists(self):
+        """Function that verifies remote path exists
+        :return None:
+        :raises ValueError: if test fails
+        """
         result, stdout = self.sshshell.run(f"test -e {self.remote_path}")
         if not result:
-            self.scs.close(
-                err_str="file on remote host doesn't exist",
-                hard_close=self.hard_close,
-            )
+            raise ValueError("file on remote host doesn't exist")
 
-        # check if its readable
+    def verify_file_is_readable(self):
+        """Function that verifies the remote file is readable
+        :return None
+        :raises ValueError: if test fails
+        """
         result, stdout = self.sshshell.run(f"test -r {self.remote_path}")
         if not result:
-            self.scs.close(
-                err_str="file on remote host is not readable",
-                hard_close=self.hard_close,
-            )
+            raise ValueError("file on remote host is not readable")
 
-        # is it a symlink? if so, rewrite remote_path with linked file path
+    def verify_file_is_symlink(self):
+        """Function that checks if file is a symlink, if true,
+        rewrite remote_path with linked file path
+        :return None
+        :raises ValueError: if test fails
+        """
         result, stdout = self.sshshell.run(f"test -L {self.remote_path}")
         if result:
             logger.info("file is a symlink")
@@ -278,23 +314,21 @@ class SplitCopyGet:
                 self.remote_dir = os.path.dirname(self.remote_path)
                 self.remote_file = os.path.basename(self.remote_path)
             else:
-                self.scs.close(
-                    err_str="file on remote host is a symlink, failed to retrieve details",
-                    hard_close=self.hard_close,
+                raise ValueError(
+                    "file on remote host is a symlink, failed to retrieve details"
                 )
 
     def delete_target_local(self):
-        """
-        deletes the target file if it already exists
+        """Function that deletes the target file if it already exists
+        :return None:
         """
         file_path = self.local_dir + os.path.sep + self.local_file
         if os.path.exists(file_path):
             os.remove(file_path)
 
     def remote_filesize(self):
-        """
-        determines the remote file size in bytes
-        :returns file_size:
+        """Function that determines the remote file size in bytes
+        :return file_size:
         :type int:
         """
         logger.info("entering remote_filesize()")
@@ -310,35 +344,19 @@ class SplitCopyGet:
         return file_size
 
     def remote_sha_get(self):
-        """
-        checks for existence of a sha hash file
+        """Function that checks for existence of a sha hash file
         if none found, generates a sha hash for the remote file to be copied
-        :returns sha_bin:
+        :return sha_bin:
         :type string:
-        :returns sha_len:
+        :return sha_len:
         :type int:
-        :returns sha_hash:
+        :return sha_hash:
         """
         logger.info("entering remote_sha_get()")
         sha_hash = {}
-        result, stdout = self.sshshell.run(f"ls -1 {self.remote_path}.sha*")
+        result, stdout = self.find_existing_sha_files()
         if result:
-            lines = stdout.split("\n")
-            for line in lines:
-                line = line.rstrip()
-                match = re.search(r"\.sha([0-9]+)$", line)
-                try:
-                    sha_num = int(match.group(1))
-                except AttributeError:
-                    continue
-                logger.info(f"{line} file found")
-                result, stdout = self.sshshell.run(f"cat {line}")
-                if result:
-                    sha_hash[sha_num] = stdout.split("\n")[1].split()[0].rstrip()
-                    logger.info(f"sha_hash[{sha_num}] added")
-                else:
-                    logger.info(f"unable to read remote sha file {line}")
-
+            sha_hash = self.process_existing_sha_files(stdout)
         if not sha_hash:
             sha_hash[1] = True
             sha_bin, sha_len = self.scs.req_sha_binaries(sha_hash)
@@ -362,7 +380,7 @@ class SplitCopyGet:
                     break
                 except AttributeError:
                     pass
-            if not sha_hash:
+            if not isinstance(sha_hash[1], str):
                 self.scs.close(
                     err_str="failed to obtain remote sha1",
                     hard_close=self.hard_close,
@@ -371,10 +389,52 @@ class SplitCopyGet:
         logger.info(f"remote sha hashes = {sha_hash}")
         return sha_hash
 
-    def split_file_remote(self, file_size, split_size, remote_tmpdir):
+    def find_existing_sha_files(self):
+        """Function that checks for presence of existing sha* files
+        :return result:
+        :type bool:
+        :return stdout:
+        :type string:
         """
-        splits file on remote host
-        :returns None:
+        result, stdout = self.sshshell.run(f"ls -1 {self.remote_path}.sha*")
+        return result, stdout
+
+    def process_existing_sha_files(self, output):
+        """Function that reads existing sha files,
+        puts the hash and sha length info a dict()
+        :param output:
+        :type string:
+        :returns sha_hash:
+        :type dict:
+        """
+        sha_hash = {}
+        for line in output.splitlines():
+            line = line.rstrip()
+            match = re.search(r"\.sha([0-9]+)$", line)
+            try:
+                sha_num = int(match.group(1))
+            except AttributeError:
+                continue
+            logger.info(f"{line} file found")
+            result, stdout = self.sshshell.run(f"cat {line}")
+            if result:
+                sha_hash[sha_num] = stdout.split("\n")[1].split()[0].rstrip()
+                logger.info(f"sha_hash[{sha_num}] added")
+            else:
+                logger.info(f"unable to read remote sha file {line}")
+        return sha_hash
+
+    def split_file_remote(self, scp_lib, file_size, split_size, remote_tmpdir):
+        """Function to split file on remote host
+        :param scp_lib:
+        :type class:
+        :param file_size:
+        :type int:
+        :param split_size:
+        :type int:
+        :param remote_tmpdir:
+        :type string:
+        :return None:
         """
         logger.info("entering split_file_remote()")
         result = False
@@ -396,7 +456,7 @@ class SplitCopyGet:
             with open("split.sh", "w") as fd:
                 fd.write(cmd)
             transport = self.sshshell._transport
-            with SCPClient(transport) as scpclient:
+            with scp_lib(transport) as scpclient:
                 scpclient.put("split.sh", f"{remote_tmpdir}/split.sh")
         print("splitting remote file...")
         result, stdout = self.sshshell.run(
@@ -407,10 +467,15 @@ class SplitCopyGet:
             err_str = f"failed to split file on remote host, due to error:\n{stdout}"
             self.scs.close(err_str, hard_close=self.hard_close)
 
-    def get_files(self, sfile, remote_tmpdir, ssh_kwargs):
-        """
-        copies files from remote host via ftp or scp
-        :param sfile: name and size of the file to copy
+    def get_files(self, ftp_lib, ssh_lib, scp_lib, chunk, remote_tmpdir, ssh_kwargs):
+        """Function that copies files from remote host via ftp or scp
+        :param ftp_lib:
+        :type class:
+        :param ssh_lib:
+        :type class:
+        :param scp_lib:
+        :type class:
+        :param chunk: name and size of the file to copy
         :type: list
         :param remote_tmpdir: path of the tmp directory on remote host
         :type: str
@@ -420,14 +485,14 @@ class SplitCopyGet:
         :returns None:
         """
         err_count = 0
-        file_name = sfile[0]
-        file_size = sfile[1]
+        file_name = chunk[0]
+        file_size = chunk[1]
         srcpath = f"{remote_tmpdir}/{file_name}"
         logger.info(f"{file_name}, size {file_size}")
         while err_count < 3:
             try:
                 if self.copy_proto == "ftp":
-                    with FTP(
+                    with ftp_lib(
                         file_size=file_size,
                         progress=self.progress,
                         host=self.host,
@@ -440,20 +505,21 @@ class SplitCopyGet:
                                 restart_marker = os.stat(file_name).st_size
                             except FileNotFoundError:
                                 pass
+                            self.progress.zero_file_stats(file_name)
                         if restart_marker is not None:
                             self.progress.print_error(
                                 f"resuming {file_name} from byte {restart_marker}"
                             )
-                        else:
-                            self.progress.zero_file_stats(file_name)
                         ftp.get(srcpath, file_name, restart_marker)
                     break
                 else:
-                    with SSHShell(**ssh_kwargs) as ssh:
+                    with ssh_lib(**ssh_kwargs) as ssh:
+                        ssh.socket_open()
+                        ssh.transport_open()
                         if not ssh.worker_thread_auth():
                             ssh.close()
                             raise SSHException("authentication failed")
-                        with SCPClient(
+                        with scp_lib(
                             ssh._transport, progress=self.progress.report_progress
                         ) as scpclient:
                             if err_count:
@@ -485,8 +551,7 @@ class SplitCopyGet:
             raise TransferError
 
     def join_files_local(self):
-        """
-        concatenates the file chunks into one file on local host
+        """Funcion that concatenates the file chunks into one file on local host
         :returns None:
         """
         logger.info("entering join_files_local()")
@@ -504,13 +569,12 @@ class SplitCopyGet:
         if not os.path.isfile(dst_file):
             err_str = f"recombined file {dst_file} isn't found, exiting"
             self.scs.close(
-                err_str,
+                err_str=err_str,
                 hard_close=self.hard_close,
             )
 
     def local_sha_get(self, sha_hash):
-        """
-        generates a sha hash for the combined file on the local host
+        """Function that generates a sha hash for the combined file on the local host
         :returns None:
         """
         logger.info("entering local_sha_get()")

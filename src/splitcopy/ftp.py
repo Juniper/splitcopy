@@ -12,8 +12,6 @@ import logging
 import os
 import sys
 
-logger = logging.getLogger(__name__)
-
 
 class FTP(ftplib.FTP):
     """FTP utility used to transfer files to and from hosts
@@ -35,6 +33,7 @@ class FTP(ftplib.FTP):
         timeout = kwargs.get("timeout")
         if not timeout:
             timeout = 30
+        logger = logging.getLogger(__name__)
         if logger.getEffectiveLevel() == 10:
             self.set_debuglevel(level=1)
         ftplib.FTP.__init__(self, host=host, user=user, passwd=passwd, timeout=timeout)
@@ -52,9 +51,10 @@ class FTP(ftplib.FTP):
     def put(self, local_file, remote_file, restart_marker):
         """copies file from local host to remote host
         :param local_file: path to local file
-        :type: string
+        :type string:
         :param remote_file: full path on server
-        :type: string
+        :type string:
+        :return None:
         """
         with open(local_file, "rb") as open_local_file:
             if restart_marker is not None:
@@ -80,9 +80,10 @@ class FTP(ftplib.FTP):
     def get(self, remote_file, local_file, restart_marker=None):
         """copies file from remote host to local host
         :param remote_file: full path on server
-        :type: string
+        :type string:
         :param local_file:  path to local file
-        :type: string
+        :type string:
+        :return None:
         """
         if restart_marker is not None:
             self.sent = restart_marker
