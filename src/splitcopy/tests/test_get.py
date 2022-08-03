@@ -190,6 +190,9 @@ class TestSplitCopyGet:
         def validate_remote_path_get():
             pass
 
+        def parse_target_arg():
+            return "", "", ""
+
         def delete_target_local():
             pass
 
@@ -220,6 +223,7 @@ class TestSplitCopyGet:
                 scget.progress.totals["percent_done"] = n
 
         monkeypatch.setattr(scget, "validate_remote_path_get", validate_remote_path_get)
+        monkeypatch.setattr(scget, "parse_target_arg", parse_target_arg)
         monkeypatch.setattr(scget, "delete_target_local", delete_target_local)
         monkeypatch.setattr(scget, "remote_filesize", remote_filesize)
         monkeypatch.setattr(scget, "remote_sha_get", remote_sha_get)
@@ -248,6 +252,9 @@ class TestSplitCopyGet:
         def validate_remote_path_get():
             pass
 
+        def parse_target_arg():
+            return "", "", ""
+
         def delete_target_local():
             pass
 
@@ -273,6 +280,7 @@ class TestSplitCopyGet:
 
         scget.noverify = True
         monkeypatch.setattr(scget, "validate_remote_path_get", validate_remote_path_get)
+        monkeypatch.setattr(scget, "parse_target_arg", parse_target_arg)
         monkeypatch.setattr(scget, "delete_target_local", delete_target_local)
         monkeypatch.setattr(scget, "remote_filesize", remote_filesize)
         monkeypatch.setattr(scget, "split_file_remote", split_file_remote)
@@ -293,6 +301,9 @@ class TestSplitCopyGet:
     def test_get_fail(self, monkeypatch: MonkeyPatch):
         def validate_remote_path_get():
             pass
+
+        def parse_target_arg():
+            return "", "", ""
 
         def delete_target_local():
             pass
@@ -316,6 +327,7 @@ class TestSplitCopyGet:
         scget.scs = MockSplitCopyShared()
         scget.progress = MockProgress()
         monkeypatch.setattr(scget, "validate_remote_path_get", validate_remote_path_get)
+        monkeypatch.setattr(scget, "parse_target_arg", parse_target_arg)
         monkeypatch.setattr(scget, "delete_target_local", delete_target_local)
         monkeypatch.setattr(scget, "remote_filesize", remote_filesize)
         monkeypatch.setattr(scget, "remote_sha_get", remote_sha_get)
@@ -381,25 +393,211 @@ class TestSplitCopyGet:
         assert expected == result
 
     def test_validate_remote_path_get_fail(self, monkeypatch: MonkeyPatch):
-        def path_startswith_tilda():
+        def expand_remote_dir():
             raise ValueError
+
+        def dirname(*args):
+            return "/var/tmp"
+
+        def basename(*args):
+            return "foobar"
 
         scget = SplitCopyGet()
         scget.scs = MockSplitCopyShared()
-        monkeypatch.setattr(scget, "path_startswith_tilda", path_startswith_tilda)
+        monkeypatch.setattr("os.path.dirname", dirname)
+        monkeypatch.setattr("os.path.basename", basename)
+        monkeypatch.setattr(scget, "expand_remote_dir", expand_remote_dir)
         with raises(SystemExit):
             scget.validate_remote_path_get()
 
     def test_validate_remote_path_get(self, monkeypatch: MonkeyPatch):
+        def dirname(*args):
+            return "/var/tmp"
+
+        def basename(*args):
+            return "foobar"
+
         scget = SplitCopyGet()
+        monkeypatch.setattr(scget, "expand_remote_dir", lambda: True)
         monkeypatch.setattr(scget, "path_startswith_tilda", lambda: True)
         monkeypatch.setattr(scget, "verify_path_is_not_directory", lambda: True)
         monkeypatch.setattr(scget, "verify_file_exists", lambda: True)
         monkeypatch.setattr(scget, "verify_file_is_readable", lambda: True)
         monkeypatch.setattr(scget, "verify_file_is_symlink", lambda: True)
+        monkeypatch.setattr("os.path.dirname", dirname)
+        monkeypatch.setattr("os.path.basename", basename)
         result = scget.validate_remote_path_get()
         expected = None
         assert expected == result
+
+    def test_parse_target_arg_isdir(self, monkeypatch: MonkeyPatch):
+        def isdir(*args):
+            return True
+
+        scget = SplitCopyGet()
+        scget.target = "/var/tmp"
+        scget.remote_file = "foo"
+        monkeypatch.setattr("os.path.isdir", isdir)
+        result = scget.parse_target_arg()
+        assert result == ("/var/tmp", "foo", "/var/tmp/foo")
+
+    def test_parse_target_arg_isdir_tilda(self, monkeypatch: MonkeyPatch):
+        def isdir(*args):
+            return True
+
+        def expanduser(*args):
+            return "/homes/foo/tmp/"
+
+        scget = SplitCopyGet()
+        scget.target = "~/tmp"
+        scget.remote_file = "foo"
+        monkeypatch.setattr("os.path.isdir", isdir)
+        monkeypatch.setattr("os.path.expanduser", expanduser)
+        result = scget.parse_target_arg()
+        assert result == ("/homes/foo/tmp", "foo", "/homes/foo/tmp/foo")
+
+    def test_parse_target_arg_dotdir(self, monkeypatch: MonkeyPatch):
+        def isdir(*args):
+            return True
+
+        def abspath(*args):
+            return "/homes/foo/tmp"
+
+        scget = SplitCopyGet()
+        scget.target = "./tmp"
+        scget.remote_file = "foo"
+        monkeypatch.setattr("os.path.isdir", isdir)
+        monkeypatch.setattr("os.path.abspath", abspath)
+        result = scget.parse_target_arg()
+        assert result == ("/homes/foo/tmp", "foo", "/homes/foo/tmp/foo")
+
+    def test_parse_target_arg_file(self, monkeypatch: MonkeyPatch):
+        def isdir(*args):
+            if re.match(r"/var/tmp/foo", args[0]):
+                return False
+            else:
+                return True
+
+        scget = SplitCopyGet()
+        scget.target = "/var/tmp/foo"
+        scget.remote_file = "foo"
+        monkeypatch.setattr("os.path.isdir", isdir)
+        result = scget.parse_target_arg()
+        assert result == ("/var/tmp", "foo", "/var/tmp/foo")
+
+    def test_parse_target_arg_file_diffname(self, monkeypatch: MonkeyPatch):
+        def isdir(*args):
+            if re.match(r"/var/tmp/foo", args[0]):
+                return False
+            else:
+                return True
+
+        scget = SplitCopyGet()
+        scget.target = "/var/tmp/foo"
+        scget.remote_file = "bar"
+        monkeypatch.setattr("os.path.isdir", isdir)
+        result = scget.parse_target_arg()
+        assert result == ("/var/tmp", "foo", "/var/tmp/foo")
+
+    def test_parse_target_arg_file_tilda(self, monkeypatch: MonkeyPatch):
+        def isdir(*args):
+            if re.match(r"~/bar", args[0]):
+                return False
+            else:
+                return True
+
+        def expanduser(*args):
+            return "/homes/foo/bar"
+
+        scget = SplitCopyGet()
+        scget.target = "~/bar"
+        scget.remote_file = "bar"
+        monkeypatch.setattr("os.path.isdir", isdir)
+        monkeypatch.setattr("os.path.expanduser", expanduser)
+        result = scget.parse_target_arg()
+        assert result == ("/homes/foo", "bar", "/homes/foo/bar")
+
+    def test_parse_target_arg_file_dotdir(self, monkeypatch: MonkeyPatch):
+        def isdir(*args):
+            if re.match(r"\./tmp/bar", args[0]):
+                return False
+            else:
+                return True
+
+        def abspath(*args):
+            return "/homes/foo/tmp/bar"
+
+        def expanduser(*args):
+            return "/homes/foo/tmp/bar"
+
+        scget = SplitCopyGet()
+        scget.target = "./tmp/bar"
+        scget.remote_file = "bar"
+        monkeypatch.setattr("os.path.isdir", isdir)
+        monkeypatch.setattr("os.path.abspath", abspath)
+        monkeypatch.setattr("os.path.expanduser", expanduser)
+        result = scget.parse_target_arg()
+        assert result == ("/homes/foo/tmp", "bar", "/homes/foo/tmp/bar")
+
+    def test_parse_target_arg_nodir(self, monkeypatch: MonkeyPatch):
+        def getcwd():
+            return "/homes/foo"
+
+        def isdir(*args):
+            return False
+
+        scget = SplitCopyGet()
+        scget.target = "bar"
+        scget.remote_file = "bar"
+        monkeypatch.setattr("os.path.isdir", isdir)
+        monkeypatch.setattr("os.getcwd", getcwd)
+        result = scget.parse_target_arg()
+        assert result == ("/homes/foo", "bar", "/homes/foo/bar")
+
+    def test_parse_target_arg_nodir_diffname(self, monkeypatch: MonkeyPatch):
+        def getcwd():
+            return "/homes/foo"
+
+        def isdir(*args):
+            return False
+
+        scget = SplitCopyGet()
+        scget.target = "bar"
+        scget.remote_file = "foobar"
+        monkeypatch.setattr("os.path.isdir", isdir)
+        monkeypatch.setattr("os.getcwd", getcwd)
+        result = scget.parse_target_arg()
+        assert result == ("/homes/foo", "bar", "/homes/foo/bar")
+
+    def test_expand_remote_dir_fail(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = False
+                stdout = ""
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        scget.remote_dir = "."
+        with raises(ValueError):
+            scget.expand_remote_dir()
+
+    def test_expand_remote_dir(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "foo@bar:~$ pwd\n" "/homes/foo/bar\n" "foo@bar:~$"
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        scget.remote_dir = "."
+        scget.remote_file = "testfile"
+        scget.expand_remote_dir()
+        assert (
+            scget.remote_dir == "/homes/foo/bar"
+            and scget.remote_path == "/homes/foo/bar/testfile"
+        )
 
     def test_path_startswith_tilda_cmdfail(self):
         class MockSSHShell2(MockSSHShell):
