@@ -49,14 +49,9 @@ class SplitCopyGet:
         self.passwd = kwargs.get("passwd")
         self.ssh_key = kwargs.get("ssh_key")
         self.ssh_port = kwargs.get("ssh_port")
-        self.remote_dir = kwargs.get("remote_dir")
-        self.remote_file = kwargs.get("remote_file")
         self.remote_path = kwargs.get("remote_path")
-        self.local_dir = kwargs.get("local_dir")
-        self.local_file = kwargs.get("local_file")
-        self.local_path = kwargs.get("local_path")
         self.copy_proto = kwargs.get("copy_proto")
-        self.get_op = kwargs.get("get")
+        self.target = kwargs.get("target")
         self.noverify = kwargs.get("noverify")
         self.split_timeout = kwargs.get("split_timeout")
         self.use_curses = kwargs.get("use_curses")
@@ -64,6 +59,11 @@ class SplitCopyGet:
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
         self.hard_close = False
+        self.local_dir = ""
+        self.local_file = ""
+        self.local_path = ""
+        self.remote_dir = ""
+        self.remote_file = ""
         self.progress = Progress()
 
     def handlesigint(self, sigint, stack):
@@ -73,8 +73,7 @@ class SplitCopyGet:
         self.scs.close(hard_close=self.hard_close)
 
     def get(self):
-        """
-        copies file from remote host to local host
+        """copies file from remote host to local host
         performs file split/transfer/join/verify functions
         :returns loop_start: time when transfers started
         :type: datetime object
@@ -101,8 +100,11 @@ class SplitCopyGet:
         # verify which protocol to use
         self.copy_proto, self.passwd = self.scs.which_proto(self.copy_proto)
 
-        # ensure dest path is valid
+        # ensure source path is valid
         self.validate_remote_path_get()
+
+        # ensure dest path is valid
+        self.local_dir, self.local_file, self.local_path = self.parse_target_arg()
 
         # check required binaries exist on remote host
         self.scs.req_binaries(junos=junos, evo=evo)
@@ -242,7 +244,10 @@ class SplitCopyGet:
         :return: None
         """
         logger.info("entering validate_remote_path_get()")
+        self.remote_dir = os.path.dirname(self.remote_path)
+        self.remote_file = os.path.basename(self.remote_path)
         try:
+            self.expand_remote_dir()
             self.path_startswith_tilda()
             self.verify_path_is_not_directory()
             self.verify_file_exists()
@@ -254,6 +259,52 @@ class SplitCopyGet:
                 err_str=err,
                 hard_close=self.hard_close,
             )
+
+    def parse_target_arg(self):
+        local_dir = None
+        local_file = None
+        local_path = None
+        target = self.target
+        remote_file = self.remote_file
+        if os.path.isdir(target):
+            # target is a <path>/
+            local_dir = os.path.abspath(os.path.expanduser(target))
+            local_file = remote_file
+        elif os.path.isdir(os.path.dirname(target)):
+            # target is a <path>/<filename>
+            local_dir = os.path.dirname(os.path.abspath(os.path.expanduser(target)))
+            if os.path.basename(target) != remote_file:
+                # have to honour the change of name
+                local_file = os.path.basename(target)
+            else:
+                local_file = remote_file
+        else:
+            # target is <filename> only
+            local_dir = os.getcwd()
+            if os.path.basename(target) != remote_file:
+                # have to honour the change of name
+                local_file = os.path.basename(target)
+            else:
+                local_file = remote_file
+
+        local_path = f"{local_dir}{os.path.sep}{local_file}"
+        return local_dir, local_file, local_path
+
+    def expand_remote_dir(self):
+        """function that expands the remote directory to its absolute path
+        :return None:
+        :raises ValueError: if remote cmd fails
+        """
+        if not self.remote_dir or re.match(r"\.", self.remote_dir):
+            result, stdout = self.sshshell.run(f"pwd")
+            if result:
+                self.remote_dir = stdout.split("\n")[1].rstrip()
+                self.remote_path = f"{self.remote_dir}/{self.remote_file}"
+                logger.info(
+                    f"remote_dir now = {self.remote_dir}, remote_path now = {self.remote_path}"
+                )
+            else:
+                raise ValueError("Cannot determine the directory on the remote host")
 
     def path_startswith_tilda(self):
         """Function that expands ~ based path
@@ -267,7 +318,7 @@ class SplitCopyGet:
                 self.remote_dir = stdout.split("\n")[1].rstrip()
                 self.remote_path = f"{self.remote_dir}/{self.remote_file}"
                 logger.info(
-                    f"remote_dir now = {self.remote_dir}, remote_file now = {self.remote_file}"
+                    f"remote_dir now = {self.remote_dir}, remote_path now = {self.remote_path}"
                 )
             else:
                 raise ValueError(f"unable to expand remote path {self.remote_path}")
