@@ -47,20 +47,19 @@ class SplitCopyPut:
         self.passwd = kwargs.get("passwd")
         self.ssh_key = kwargs.get("ssh_key")
         self.ssh_port = kwargs.get("ssh_port")
-        self.remote_dir = kwargs.get("remote_dir")
-        self.remote_file = kwargs.get("remote_file")
         self.remote_path = kwargs.get("remote_path")
         self.local_dir = kwargs.get("local_dir")
         self.local_file = kwargs.get("local_file")
         self.local_path = kwargs.get("local_path")
         self.copy_proto = kwargs.get("copy_proto")
-        self.get_op = kwargs.get("get")
         self.noverify = kwargs.get("noverify")
         self.use_curses = kwargs.get("use_curses")
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
         self.hard_close = False
         self.sshshell = None
+        self.remote_dir = ""
+        self.remote_file = ""
         self.progress = Progress()
 
     def handlesigint(self, sigint, stack):
@@ -247,15 +246,15 @@ class SplitCopyPut:
                 # target path provided was a full path, file name matches src
                 self.remote_file = self.local_file
             self.remote_dir = os.path.dirname(self.remote_path)
-            logger.info(
-                f"self.remote_path = {self.remote_path}, self.remote_dir = "
-                f"{self.remote_dir}, self.remote_file = {self.remote_file}"
-            )
         else:
             self.scs.close(
                 err_str=f"target path {self.remote_path} on remote host isn't valid",
                 hard_close=self.hard_close,
             )
+        logger.info(
+            f"self.remote_path = {self.remote_path}, self.remote_dir = "
+            f"{self.remote_dir}, self.remote_file = {self.remote_file}"
+        )
 
     def check_target_exists(self):
         """Function that checks if the target file already exists
