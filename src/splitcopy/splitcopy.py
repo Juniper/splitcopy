@@ -15,24 +15,17 @@ import logging
 import os
 import re
 import signal
-from socket import gethostbyname, gaierror, herror
+import socket
+import sys
+import traceback
 
-# local modules
-from splitcopy.put import SplitCopyPut
 from splitcopy.get import SplitCopyGet
+from splitcopy.put import SplitCopyPut
 
 logger = logging.getLogger(__name__)
 
 
-def main():
-    """body of script"""
-
-    def handlesigint(sigint, stack):
-        raise SystemExit
-
-    signal.signal(signal.SIGINT, handlesigint)
-    start_time = datetime.datetime.now()
-
+def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "source", help="either <path> or user@<host>:<path> or <host>:<path>"
@@ -69,7 +62,47 @@ def main():
     parser.add_argument("--nocurses", action="store_true", help="disable curses output")
     parser.add_argument("--log", nargs=1, help="log level, eg DEBUG")
     args = parser.parse_args()
+    return args
 
+
+def parse_source_arg_as_local(source):
+    local_file = None
+    local_dir = None
+    local_path = os.path.abspath(os.path.expanduser(source))
+    with open(local_path, "rb"):
+        local_file = os.path.basename(local_path)
+        local_dir = os.path.dirname(local_path)
+    return local_file, local_dir, local_path
+
+
+def parse_arg_as_remote(arg_name, arg_str):
+    user = None
+    host = None
+    if re.search(r".*@.*:", arg_name):
+        user = arg_name.split("@")[0]
+        host = re.search(r"@(.*):", arg_name).group(1)
+    elif re.search(r".*:", arg_name):
+        user = getpass.getuser()
+        host = arg_name.split(":")[0]
+    else:
+        raise ValueError(
+            f"{arg_str} argument path is not in the correct format "
+            "<user>@<host>:<path> or <host>:<path>"
+        )
+    remote_path = arg_name.split(":")[1]
+    return user, host, remote_path
+
+
+def handlesigint(sigint, stack):
+    raise SystemExit
+
+
+def splitcopy_main(get_class, put_class):
+    """body of script"""
+    signal.signal(signal.SIGINT, handlesigint)
+    start_time = datetime.datetime.now()
+
+    args = parse_args()
     if not args.log:
         loglevel = "WARNING"
     else:
@@ -92,9 +125,10 @@ def main():
     remote_file = None
     remote_path = None
     local_dir = None
+    local_file = None
     local_path = None
     copy_proto = None
-    get = False
+    copy_op = ""
     noverify = args.noverify
     source = args.source
     target = args.target
@@ -102,79 +136,40 @@ def main():
     if args.nocurses:
         use_curses = False
 
-    if os.path.isfile(source):
-        local_path = os.path.abspath(os.path.expanduser(source))
-        try:
-            with open(local_path, "rb"):
-                pass
-        except PermissionError:
-            raise SystemExit(
-                f"source file {local_path} exists but is not readable - cannot proceed"
-            )
-        local_file = os.path.basename(local_path)
-        local_dir = os.path.dirname(local_path)
-    elif re.search(r".*:", source):
-        if re.search(r"@", source):
-            user = source.split("@")[0]
-            host = source.split("@")[1]
-            host = host.split(":")[0]
-        else:
-            user = getpass.getuser()
-            host = source.split(":")[0]
-        remote_path = source.split(":")[1]
-        remote_file = os.path.basename(remote_path)
-        remote_dir = os.path.dirname(remote_path)
-        if remote_dir == "" or remote_dir == ".":
-            remote_dir = "~"
-            remote_path = f"{remote_dir}/{remote_file}"
-        if not remote_file:
-            raise SystemExit("src path doesn't specify a file name")
-        get = True
-    else:
+    try:
+        local_file, local_dir, local_path = parse_source_arg_as_local(source)
+    except FileNotFoundError:
+        pass
+    except PermissionError:
         raise SystemExit(
-            "specified source is not a valid path to a local "
-            "file, or is not in the format <user>@<host>:<path> "
-            "or <host>:<path>"
+            f"source arg file exists, but cannot be read due to a permissions error"
         )
+    except IsADirectoryError:
+        raise SystemExit("source arg is a directory, not a file")
 
-    if os.path.isdir(target):
-        local_dir = os.path.abspath(os.path.expanduser(target))
-        local_file = remote_file
-    elif os.path.isdir(os.path.dirname(target)):
-        # we've been passed in a filename, may not exist yet
-        local_dir = os.path.dirname(os.path.abspath(os.path.expanduser(target)))
-        if os.path.basename(target) != remote_file:
-            # have to honour the change of name
-            local_file = os.path.basename(target)
-        else:
-            local_file = remote_file
-    elif re.search(r".*:", target):
-        if re.search(r"@", target):
-            user = target.split("@")[0]
-            host = target.split("@")[1]
-            host = host.split(":")[0]
-        else:
-            user = getpass.getuser()
-            host = target.split(":")[0]
-        remote_path = target.split(":")[1]
-        if remote_path == "":
-            remote_dir = "~"
-            remote_file = local_file
-            remote_path = f"{remote_dir}/{remote_file}"
-        elif os.path.dirname(remote_path) == "":
-            remote_dir = "~"
-            remote_file = remote_path
-            remote_path = f"{remote_dir}/{remote_file}"
+    if not local_file and os.path.splitdrive(source)[0]:
+        # source arg is a windows drive/UNC sharepoint
+        # splitdrive will only return a value on windows systems
+        raise SystemExit(f"source arg file at path {source} cannot be found")
+
+    if local_file is not None:
+        copy_op = "put"
+        try:
+            user, host, remote_path = parse_arg_as_remote(target, "target")
+        except ValueError as err:
+            logger.debug("".join(traceback.format_exception(*sys.exc_info())))
+            raise SystemExit(err)
     else:
-        raise SystemExit(
-            "specified target is not a valid path to a local "
-            "file or directory, or is not in the format <user>@<host>:<path> "
-            "or <host>:<path>"
-        )
+        copy_op = "get"
+        try:
+            user, host, remote_path = parse_arg_as_remote(source, "source")
+        except ValueError as err:
+            logger.debug("".join(traceback.format_exception(*sys.exc_info())))
+            raise SystemExit(err)
 
     try:
-        host = gethostbyname(host)
-    except (gaierror, herror):
+        host = socket.gethostbyname(host)
+    except socket.gaierror:
         raise SystemExit("hostname resolution failed")
 
     if args.pwd:
@@ -216,18 +211,18 @@ def main():
         "local_file": local_file,
         "local_path": local_path,
         "copy_proto": copy_proto,
-        "get": get,
         "noverify": noverify,
         "split_timeout": split_timeout,
         "use_curses": use_curses,
+        "target": target,
     }
     logger.info(kwargs)
 
-    if get:
-        splitcopyget = SplitCopyGet(**kwargs)
+    if copy_op == "get":
+        splitcopyget = get_class(**kwargs)
         loop_start, loop_end = splitcopyget.get()
     else:
-        splitcopyput = SplitCopyPut(**kwargs)
+        splitcopyput = put_class(**kwargs)
         loop_start, loop_end = splitcopyput.put()
 
     # and we are done...
@@ -235,6 +230,10 @@ def main():
     time_delta = end_time - start_time
     transfer_delta = loop_end - loop_start
     print(f"data transfer = {transfer_delta}\ntotal runtime = {time_delta}")
+
+
+def main():
+    splitcopy_main(SplitCopyGet, SplitCopyPut)
 
 
 if __name__ == "__main__":
