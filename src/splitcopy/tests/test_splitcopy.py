@@ -147,7 +147,7 @@ def test_parse_arg_as_remote_nofile():
     assert result == ("someone", "foobar", "")
 
 
-def test_splitcopy_main_filenotfounderror_local_windows(monkeypatch: MonkeyPatch):
+def test_main_filenotfounderror_local_windows(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="C:\\tmp\\foo",
@@ -169,10 +169,10 @@ def test_splitcopy_main_filenotfounderror_local_windows(monkeypatch: MonkeyPatch
     )
     monkeypatch.setattr("os.path.splitdrive", splitdrive)
     with raises(SystemExit):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
-def test_splitcopy_main_permerror_local(monkeypatch: MonkeyPatch):
+def test_main_permerror_local(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="/var/tmp/foo",
@@ -190,10 +190,10 @@ def test_splitcopy_main_permerror_local(monkeypatch: MonkeyPatch):
         "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
     )
     with raises(SystemExit):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
-def test_splitcopy_main_isadirerror_local(monkeypatch: MonkeyPatch):
+def test_main_isadirerror_local(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="/var/tmp/foo",
@@ -211,10 +211,10 @@ def test_splitcopy_main_isadirerror_local(monkeypatch: MonkeyPatch):
         "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
     )
     with raises(SystemExit):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
-def test_splitcopy_main_invalid_loglevel(monkeypatch: MonkeyPatch):
+def test_main_invalid_loglevel(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             log=["foobar"],
@@ -222,10 +222,10 @@ def test_splitcopy_main_invalid_loglevel(monkeypatch: MonkeyPatch):
 
     monkeypatch.setattr("splitcopy.splitcopy.parse_args", parse_args)
     with raises(ValueError):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
-def test_splitcopy_main_put_ftp_success(monkeypatch: MonkeyPatch):
+def test_main_put_ftp_success(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="/var/tmp/foobar",
@@ -259,11 +259,11 @@ def test_splitcopy_main_put_ftp_success(monkeypatch: MonkeyPatch):
     monkeypatch.setattr("socket.gethostbyname", gethostbyname)
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
     monkeypatch.setattr("os.path.isfile", isfile)
-    result = splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+    result = splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
     assert result == None
 
 
-def test_splitcopy_main_get_scp_success(monkeypatch: MonkeyPatch):
+def test_main_get_scp_success(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="192.168.64.7:/var/tmp/foobar",
@@ -293,11 +293,11 @@ def test_splitcopy_main_get_scp_success(monkeypatch: MonkeyPatch):
     )
     monkeypatch.setattr("socket.gethostbyname", gethostbyname)
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
-    result = splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+    result = splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
     assert result == None
 
 
-def test_splitcopy_main_put_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
+def test_main_put_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="/var/tmp/foobar",
@@ -324,10 +324,10 @@ def test_splitcopy_main_put_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
     )
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
     with raises(SystemExit):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
-def test_splitcopy_main_get_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
+def test_main_get_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="192.168.64.7:/var/tmp/foobar",
@@ -354,10 +354,10 @@ def test_splitcopy_main_get_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
     )
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
     with raises(SystemExit):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
-def test_splitcopy_main_get_resolution_fail(monkeypatch: MonkeyPatch):
+def test_main_get_resolution_fail(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="somerandomhost:/var/tmp/foobar",
@@ -388,10 +388,10 @@ def test_splitcopy_main_get_resolution_fail(monkeypatch: MonkeyPatch):
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
     monkeypatch.setattr("socket.gethostbyname", gethostbyname)
     with raises(SystemExit):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
-def test_splitcopy_main_put_ftp_sshkey_notfound(monkeypatch: MonkeyPatch):
+def test_main_put_ftp_sshkey_notfound(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="/var/tmp/foobar",
@@ -426,10 +426,10 @@ def test_splitcopy_main_put_ftp_sshkey_notfound(monkeypatch: MonkeyPatch):
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
     monkeypatch.setattr("os.path.isfile", isfile)
     with raises(SystemExit):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
-def test_splitcopy_main_put_ftp_sshport_notint(monkeypatch: MonkeyPatch):
+def test_main_put_ftp_sshport_notint(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="/var/tmp/foobar",
@@ -460,10 +460,10 @@ def test_splitcopy_main_put_ftp_sshport_notint(monkeypatch: MonkeyPatch):
     monkeypatch.setattr("socket.gethostbyname", gethostbyname)
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
     with raises(SystemExit):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
-def test_splitcopy_main_put_ftp_split_timeout_notint(monkeypatch: MonkeyPatch):
+def test_main_put_ftp_split_timeout_notint(monkeypatch: MonkeyPatch):
     def parse_args(*args):
         return Namespace(
             source="/var/tmp/foobar",
@@ -494,14 +494,9 @@ def test_splitcopy_main_put_ftp_split_timeout_notint(monkeypatch: MonkeyPatch):
     monkeypatch.setattr("socket.gethostbyname", gethostbyname)
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
     with raises(SystemExit):
-        splitcopy.splitcopy_main(MockSplitCopyGet, MockSplitCopyPut)
+        splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
 
 def test_handlesigint():
     with raises(SystemExit):
         splitcopy.handlesigint("SigInt", "stack")
-
-
-def test_main():
-    with raises(SystemExit):
-        splitcopy.main()

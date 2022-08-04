@@ -296,7 +296,7 @@ class SplitCopyGet:
         :raises ValueError: if remote cmd fails
         """
         if not self.remote_dir or re.match(r"\.", self.remote_dir):
-            result, stdout = self.sshshell.run(f"pwd")
+            result, stdout = self.sshshell.run("pwd")
             if result:
                 self.remote_dir = stdout.split("\n")[1].rstrip()
                 self.remote_path = f"{self.remote_dir}/{self.remote_file}"

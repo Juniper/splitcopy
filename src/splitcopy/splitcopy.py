@@ -97,7 +97,7 @@ def handlesigint(sigint, stack):
     raise SystemExit
 
 
-def splitcopy_main(get_class, put_class):
+def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
     """body of script"""
     signal.signal(signal.SIGINT, handlesigint)
     start_time = datetime.datetime.now()
@@ -142,7 +142,7 @@ def splitcopy_main(get_class, put_class):
         pass
     except PermissionError:
         raise SystemExit(
-            f"source arg file exists, but cannot be read due to a permissions error"
+            f"source file '{source}' exists, but cannot be read due to a permissions error"
         )
     except IsADirectoryError:
         raise SystemExit("source arg is a directory, not a file")
@@ -230,10 +230,6 @@ def splitcopy_main(get_class, put_class):
     time_delta = end_time - start_time
     transfer_delta = loop_end - loop_start
     print(f"data transfer = {transfer_delta}\ntotal runtime = {time_delta}")
-
-
-def main():
-    splitcopy_main(SplitCopyGet, SplitCopyPut)
 
 
 if __name__ == "__main__":
