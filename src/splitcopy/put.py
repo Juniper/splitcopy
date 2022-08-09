@@ -90,7 +90,7 @@ class SplitCopyPut:
             "ssh_port": self.ssh_port,
         }
 
-        # handle sigint gracefully on *nix, WIN32 is (of course) a basket case
+        # handle sigint gracefully on *nix
         signal.signal(signal.SIGINT, self.handlesigint)
 
         # connect to host
@@ -260,10 +260,13 @@ class SplitCopyPut:
                 err_str=f"target path {self.remote_path} on remote host isn't valid",
                 hard_close=self.hard_close,
             )
-        logger.info(
-            f"self.remote_path = {self.remote_path}, self.remote_dir = "
-            f"{self.remote_dir}, self.remote_file = {self.remote_file}"
+        logger.debug(
+            f"remote_dir now = {self.remote_dir}, "
+            f"remote_file now = {self.remote_file}, "
         )
+        # update SplitCopyShared with these values
+        self.scs.remote_dir = self.remote_dir
+        self.scs.remote_file = self.remote_file
 
     def check_target_exists(self):
         """checks if the target file already exists
