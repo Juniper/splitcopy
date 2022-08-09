@@ -64,6 +64,7 @@ class SplitCopyGet:
         self.local_path = ""
         self.remote_dir = ""
         self.remote_file = ""
+        self.filesize_path = self.remote_path
         self.progress = Progress()
 
     def handlesigint(self, sigint, stack):
@@ -94,7 +95,7 @@ class SplitCopyGet:
             "ssh_port": self.ssh_port,
         }
 
-        # handle sigint gracefully on *nix, WIN32 is (of course) a basket case
+        # handle sigint gracefully on *nix
         signal.signal(signal.SIGINT, self.handlesigint)
 
         # connect to host
@@ -258,13 +259,16 @@ class SplitCopyGet:
             self.verify_path_is_not_directory()
             self.verify_file_exists()
             self.verify_file_is_readable()
-            self.verify_file_is_symlink()
-
+            self.check_if_symlink()
         except ValueError as err:
             self.scs.close(
                 err_str=err,
                 hard_close=self.hard_close,
             )
+        # update SplitCopyShared with these values
+        self.scs.remote_file = self.remote_file
+        self.scs.remote_dir = self.remote_dir
+        self.scs.remote_path = self.remote_path
 
     def parse_target_arg(self):
         """determines the local file/dir/path based on the target arg
@@ -316,7 +320,7 @@ class SplitCopyGet:
             if result:
                 self.remote_dir = stdout.split("\n")[1].rstrip()
                 self.remote_path = f"{self.remote_dir}/{self.remote_file}"
-                logger.info(
+                logger.debug(
                     f"remote_dir now = {self.remote_dir}, remote_path now = {self.remote_path}"
                 )
             else:
@@ -369,24 +373,33 @@ class SplitCopyGet:
         if not result:
             raise ValueError("file on remote host is not readable")
 
-    def verify_file_is_symlink(self):
-        """if file is a symlink, rewrite remote_path with linked file path
+    def check_if_symlink(self):
+        """if remote_path is a symlink, determine the link dst path
+        this is required to determine the files size
         :return None
         :raises ValueError: if test fails
         """
-        logger.info("entering verify_file_is_symlink()")
+        logger.info("entering check_if_symlink()")
         result, stdout = self.sshshell.run(f"test -L {self.remote_path}")
         if result:
             logger.info("file is a symlink")
             result, stdout = self.sshshell.run(f"ls -l {self.remote_path}")
             if result:
-                self.remote_path = stdout.split()[-2].rstrip()
-                self.remote_dir = os.path.dirname(self.remote_path)
-                self.remote_file = os.path.basename(self.remote_path)
+                linked_path = stdout.split()[-2].rstrip()
+                linked_dir = os.path.dirname(linked_path)
+                linked_file = os.path.basename(linked_path)
             else:
                 raise ValueError(
                     "file on remote host is a symlink, failed to retrieve details"
                 )
+            if not linked_dir:
+                # symlink is in the same directory as source file use self.remote_dir
+                self.filesize_path = f"{self.remote_dir}/{linked_file}"
+            else:
+                self.filesize_path = f"{linked_dir}/{linked_file}"
+            logger.debug(
+                f"filesize_path updated from {self.remote_path} to {self.filesize_path}"
+            )
 
     def delete_target_local(self):
         """deletes the target file if it already exists
@@ -403,7 +416,7 @@ class SplitCopyGet:
         :type int:
         """
         logger.info("entering remote_filesize()")
-        result, stdout = self.sshshell.run(f"ls -l {self.remote_path}")
+        result, stdout = self.sshshell.run(f"ls -l {self.filesize_path}")
         if result:
             file_size = int(stdout.split("\n")[1].split()[4])
         else:
