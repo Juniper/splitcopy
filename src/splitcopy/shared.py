@@ -57,11 +57,11 @@ class SplitCopyShared:
         self.passwd = kwargs.get("passwd")
         self.ssh_key = kwargs.get("ssh_key")
         self.ssh_port = kwargs.get("ssh_port")
-        self.remote_dir = kwargs.get("remote_dir")
-        self.remote_file = kwargs.get("remote_file")
         self.remote_path = kwargs.get("remote_path")
         self.local_dir = kwargs.get("local_dir")
         self.get_op = kwargs.get("get")
+        self.remote_dir = ""
+        self.remote_file = ""
         self.command_list = []
         self.rm_remote_tmp = False
         self.local_tmpdir = None
@@ -79,6 +79,7 @@ class SplitCopyShared:
         :returm ssh_kwargs:
         :type dict:
         """
+        logger.info("entering connect()")
         try:
             self.sshshell = ssh_lib(**ssh_kwargs)
             self.sshshell.socket_open()
@@ -112,6 +113,7 @@ class SplitCopyShared:
         :return passwd:
         :type string:
         """
+        logger.info("entering which_proto()")
         passwd = self.sshshell.kwargs["password"]
         result = None
         if copy_proto == "ftp" and self.ftp_port_check():
@@ -141,6 +143,7 @@ class SplitCopyShared:
         :return result:
         :type bool:
         """
+        logger.info("entering ftp_port_check()")
         result = False
         print("attempting FTP authentication...")
         try:
@@ -161,6 +164,7 @@ class SplitCopyShared:
         :return result:
         :type bool:
         """
+        logger.info("entering ftp_login_check()")
         result = False
         kwargs = {
             "host": self.host,
@@ -356,6 +360,7 @@ class SplitCopyShared:
         :raises SystemExit: terminates the script gracefully
         :raises os._exit: terminates the script immediately (even asyncio loop)
         """
+        logger.info("entering close()")
         if err_str:
             print(err_str)
         if self.rm_remote_tmp:
@@ -584,6 +589,7 @@ class SplitCopyShared:
         :return cli_config:
         :type string:
         """
+        logger.info("entering find_configured_limits()")
         cli_config = ""
         for stanza in config_stanzas:
             result, stdout = self.sshshell.run(
@@ -684,6 +690,7 @@ class SplitCopyShared:
         :type: bool
         :return None:
         """
+        logger.info("entering remote_cleanup()")
         if remote_dir:
             self.remote_dir = remote_dir
         if remote_file:
