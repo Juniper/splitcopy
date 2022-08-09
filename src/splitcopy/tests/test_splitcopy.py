@@ -157,16 +157,14 @@ def test_main_filenotfounderror_local_windows(monkeypatch: MonkeyPatch):
             nocurses=False,
         )
 
-    def parse_source_arg_as_local(*args):
-        raise FileNotFoundError
-
     def splitdrive(*args):
         return ["C:", "tmp\\foo"]
 
+    def isfile(*args):
+        return False
+
     monkeypatch.setattr("splitcopy.splitcopy.parse_args", parse_args)
-    monkeypatch.setattr(
-        "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
-    )
+    monkeypatch.setattr("os.path.isfile", isfile)
     monkeypatch.setattr("os.path.splitdrive", splitdrive)
     with raises(SystemExit):
         splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
@@ -182,6 +180,9 @@ def test_main_permerror_local(monkeypatch: MonkeyPatch):
             nocurses=False,
         )
 
+    def isfile(*args):
+        return True
+
     def parse_source_arg_as_local(*args):
         raise PermissionError
 
@@ -189,6 +190,7 @@ def test_main_permerror_local(monkeypatch: MonkeyPatch):
     monkeypatch.setattr(
         "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
     )
+    monkeypatch.setattr("os.path.isfile", isfile)
     with raises(SystemExit):
         splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
@@ -203,13 +205,15 @@ def test_main_isadirerror_local(monkeypatch: MonkeyPatch):
             nocurses=True,
         )
 
-    def parse_source_arg_as_local(*args):
-        raise IsADirectoryError
+    def isfile(*args):
+        return False
+
+    def isdir(*args):
+        return True
 
     monkeypatch.setattr("splitcopy.splitcopy.parse_args", parse_args)
-    monkeypatch.setattr(
-        "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
-    )
+    monkeypatch.setattr("os.path.isfile", isfile)
+    monkeypatch.setattr("os.path.isdir", isdir)
     with raises(SystemExit):
         splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
@@ -278,8 +282,11 @@ def test_main_get_scp_success(monkeypatch: MonkeyPatch):
             split_timeout=None,
         )
 
-    def parse_source_arg_as_local(*args):
-        raise FileNotFoundError
+    def isfile(*args):
+        return False
+
+    def isdir(*args):
+        return False
 
     def parse_arg_as_remote(*args):
         return ("foo", "192.168.64.7", "/var/tmp/foobar")
@@ -288,9 +295,8 @@ def test_main_get_scp_success(monkeypatch: MonkeyPatch):
         return "192.168.64.7"
 
     monkeypatch.setattr("splitcopy.splitcopy.parse_args", parse_args)
-    monkeypatch.setattr(
-        "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
-    )
+    monkeypatch.setattr("os.path.isfile", isfile)
+    monkeypatch.setattr("os.path.isdir", isdir)
     monkeypatch.setattr("socket.gethostbyname", gethostbyname)
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
     result = splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
@@ -312,6 +318,9 @@ def test_main_put_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
             split_timeout=[300],
         )
 
+    def isfile(*args):
+        return True
+
     def parse_source_arg_as_local(*args):
         return ("foobar", "/var/tmp", "/var/tmp/foobar")
 
@@ -323,6 +332,7 @@ def test_main_put_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
         "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
     )
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
+    monkeypatch.setattr("os.path.isfile", isfile)
     with raises(SystemExit):
         splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
@@ -342,17 +352,19 @@ def test_main_get_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
             split_timeout=None,
         )
 
-    def parse_source_arg_as_local(*args):
-        raise FileNotFoundError
+    def isfile(*args):
+        return False
+
+    def isdir(*args):
+        return False
 
     def parse_arg_as_remote(*args):
         raise ValueError
 
     monkeypatch.setattr("splitcopy.splitcopy.parse_args", parse_args)
-    monkeypatch.setattr(
-        "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
-    )
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
+    monkeypatch.setattr("os.path.isfile", isfile)
+    monkeypatch.setattr("os.path.isdir", isdir)
     with raises(SystemExit):
         splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
@@ -372,8 +384,11 @@ def test_main_get_resolution_fail(monkeypatch: MonkeyPatch):
             split_timeout=None,
         )
 
-    def parse_source_arg_as_local(*args):
-        raise FileNotFoundError
+    def isfile(*args):
+        return False
+
+    def isdir(*args):
+        return False
 
     def parse_arg_as_remote(*args):
         return ("foo", "somerandomhost", "/var/tmp/foobar")
@@ -382,11 +397,10 @@ def test_main_get_resolution_fail(monkeypatch: MonkeyPatch):
         raise gaierror
 
     monkeypatch.setattr("splitcopy.splitcopy.parse_args", parse_args)
-    monkeypatch.setattr(
-        "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
-    )
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
     monkeypatch.setattr("socket.gethostbyname", gethostbyname)
+    monkeypatch.setattr("os.path.isfile", isfile)
+    monkeypatch.setattr("os.path.isdir", isdir)
     with raises(SystemExit):
         splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
@@ -416,7 +430,10 @@ def test_main_put_ftp_sshkey_notfound(monkeypatch: MonkeyPatch):
         return "192.168.64.7"
 
     def isfile(*args):
-        return False
+        if args[0] == "/var/tmp/foobar":
+            return True
+        else:
+            return False
 
     monkeypatch.setattr("splitcopy.splitcopy.parse_args", parse_args)
     monkeypatch.setattr(

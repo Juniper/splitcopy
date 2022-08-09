@@ -411,24 +411,20 @@ class TestSplitCopyGet:
             scget.validate_remote_path_get()
 
     def test_validate_remote_path_get(self, monkeypatch: MonkeyPatch):
-        def dirname(*args):
-            return "/var/tmp"
-
-        def basename(*args):
-            return "foobar"
-
         scget = SplitCopyGet()
         monkeypatch.setattr(scget, "expand_remote_dir", lambda: True)
         monkeypatch.setattr(scget, "path_startswith_tilda", lambda: True)
         monkeypatch.setattr(scget, "verify_path_is_not_directory", lambda: True)
         monkeypatch.setattr(scget, "verify_file_exists", lambda: True)
         monkeypatch.setattr(scget, "verify_file_is_readable", lambda: True)
-        monkeypatch.setattr(scget, "verify_file_is_symlink", lambda: True)
-        monkeypatch.setattr("os.path.dirname", dirname)
-        monkeypatch.setattr("os.path.basename", basename)
-        result = scget.validate_remote_path_get()
-        expected = None
-        assert expected == result
+        monkeypatch.setattr(scget, "check_if_symlink", lambda: True)
+        scget.remote_path = "/var/tmp/foobar"
+        scget.validate_remote_path_get()
+        assert (
+            scget.remote_dir == "/var/tmp"
+            and scget.remote_file == "foobar"
+            and scget.remote_path == "/var/tmp/foobar"
+        )
 
     def test_parse_target_arg_isdir(self, monkeypatch: MonkeyPatch):
         def isdir(*args):
@@ -671,7 +667,7 @@ class TestSplitCopyGet:
         with raises(ValueError):
             scget.verify_file_is_readable()
 
-    def test_verify_file_is_symlink(self):
+    def test_check_if_symlink(self):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -685,14 +681,28 @@ class TestSplitCopyGet:
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
         scget.remote_path = "/tmp/foo"
-        scget.verify_file_is_symlink()
-        assert (
-            scget.remote_path == "/var/tmp/foo"
-            and scget.remote_dir == "/var/tmp"
-            and scget.remote_file == "foo"
-        )
+        scget.check_if_symlink()
+        assert scget.filesize_path == "/var/tmp/foo"
 
-    def test_verify_file_is_symlink_fail(self):
+    def test_check_if_symlink_samedir(self):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = (
+                    "foo@bar:~$ ls -l /tmp/foo\n"
+                    "lrwxrwxrwx 1 foo bar 43 Jun 22 05:48 /tmp/foo -> bar\n"
+                    "foo@bar:~$"
+                )
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        scget.remote_dir = "/tmp"
+        scget.remote_path = "/tmp/foo"
+        scget.check_if_symlink()
+        assert scget.filesize_path == "/tmp/bar"
+
+    def test_check_if_symlink_fail(self):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -705,7 +715,7 @@ class TestSplitCopyGet:
         scget.sshshell = MockSSHShell2()
         scget.remote_path = "/tmp/foo"
         with raises(ValueError):
-            scget.verify_file_is_symlink()
+            scget.check_if_symlink()
 
     def test_delete_target_local(self, monkeypatch: MonkeyPatch):
         def exists(*args):

@@ -11,10 +11,6 @@ def test_pad_string():
     assert result == expected
 
 
-def init_shared():
-    return SplitCopyShared()
-
-
 class Test_Shared:
     def test_connect_fail(self, monkeypatch: MonkeyPatch):
         class MockSSHShell:
@@ -33,7 +29,7 @@ class Test_Shared:
             def close(self):
                 pass
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         with raises(SystemExit):
             scs.connect(MockSSHShell)
 
@@ -63,7 +59,7 @@ class Test_Shared:
             def stdout_read(self, timeout=None):
                 pass
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         ssh_kwargs = {
             "hostname": "foo",
             "username": "bar",
@@ -85,7 +81,7 @@ class Test_Shared:
         def ftp_login_check(passwd):
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "ftp_port_check", ftp_port_check)
         monkeypatch.setattr(scs, "ftp_login_check", ftp_login_check)
@@ -108,7 +104,7 @@ class Test_Shared:
         def getpass(prompt, stream):
             return "foobar"
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "ftp_port_check", ftp_port_check)
         monkeypatch.setattr(scs, "ftp_login_check", ftp_login_check)
@@ -126,7 +122,7 @@ class Test_Shared:
         def ftp_port_check():
             return False
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "ftp_port_check", ftp_port_check)
         result = scs.which_proto("ftp")
@@ -145,7 +141,7 @@ class Test_Shared:
         def ftp_login_check(passwd):
             return False
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "ftp_port_check", ftp_port_check)
         monkeypatch.setattr(scs, "ftp_login_check", ftp_login_check)
@@ -165,7 +161,7 @@ class Test_Shared:
         def ftp_login_check(passwd):
             raise error_reply
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "ftp_port_check", ftp_port_check)
         monkeypatch.setattr(scs, "ftp_login_check", ftp_login_check)
@@ -185,7 +181,7 @@ class Test_Shared:
         def ftp_login_check(passwd):
             raise socket_timeout
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "ftp_port_check", ftp_port_check)
         monkeypatch.setattr(scs, "ftp_login_check", ftp_login_check)
@@ -199,7 +195,7 @@ class Test_Shared:
                 self.kwargs = {}
                 self.kwargs["password"] = "foobar"
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         result = scs.which_proto("scp")
         expected = "scp", "foobar"
@@ -210,7 +206,7 @@ class Test_Shared:
             def create_connection(address, timeout):
                 pass
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         result = scs.ftp_port_check(socket_lib=MockSocket)
         expected = True
         assert expected == result
@@ -220,7 +216,7 @@ class Test_Shared:
             def create_connection(address, timeout):
                 raise socket_timeout
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         result = scs.ftp_port_check(socket_lib=MockSocket)
         expected = False
         assert expected == result
@@ -230,7 +226,7 @@ class Test_Shared:
             def create_connection(address, timeout):
                 raise ConnectionRefusedError
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         result = scs.ftp_port_check(socket_lib=MockSocket)
         expected = False
         assert expected == result
@@ -246,7 +242,7 @@ class Test_Shared:
             def __exit__(self, exc_type, exc_value, exc_tb):
                 pass
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         result = scs.ftp_login_check("foobar", ftp_lib=MockFTP)
         expected = True
         assert expected == result
@@ -256,7 +252,7 @@ class Test_Shared:
             def __init__(self, **kwargs):
                 raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         with raises(SystemExit):
             scs.ftp_login_check("foobar", ftp_lib=MockFTP)
 
@@ -268,7 +264,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
@@ -282,7 +278,7 @@ class Test_Shared:
         def evo_os():
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "evo_os", evo_os)
         result = scs.which_os()
@@ -297,7 +293,7 @@ class Test_Shared:
         def junos_os():
             return True, 6.3, 7.1
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "junos_os", junos_os)
         result = scs.which_os()
@@ -315,7 +311,7 @@ class Test_Shared:
         def junos_os():
             return False, float(), 7.1
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "evo_os", evo_os)
         monkeypatch.setattr(scs, "junos_os", junos_os)
@@ -328,7 +324,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True):
                 return True, ""
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         result = scs.evo_os()
         expected = True
@@ -342,7 +338,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
@@ -356,7 +352,7 @@ class Test_Shared:
         def which_sshd():
             return 7.1
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "which_sshd", which_sshd)
         result = scs.junos_os()
@@ -374,7 +370,7 @@ class Test_Shared:
         def which_sshd():
             return 7.1
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "which_bsd", which_bsd)
         monkeypatch.setattr(scs, "which_sshd", which_sshd)
@@ -390,7 +386,7 @@ class Test_Shared:
         def which_sshd():
             return 7.1
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "which_sshd", which_sshd)
         result = scs.junos_os()
@@ -405,7 +401,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
@@ -416,7 +412,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True):
                 return True, "uname -r\nFreeBSD-12.1\nfoo@bar:~$"
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         result = scs.which_bsd()
         expected = 12.1
@@ -430,7 +426,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
@@ -445,7 +441,7 @@ class Test_Shared:
                     "OpenSSH_8.6p1, LibreSSL 3.3.6\n"
                 )
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         result = scs.which_sshd()
         expected = 8.6
@@ -459,7 +455,7 @@ class Test_Shared:
             def close(err_str):
                 raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         with raises(SystemExit):
             scs.req_binaries(get_op=False, junos=False, evo=False)
@@ -469,7 +465,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True):
                 return True, ""
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         result = scs.req_binaries(get_op=False, junos=False, evo=False)
         expected = None
@@ -480,7 +476,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True):
                 return True, ""
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         result = scs.req_binaries(get_op=True, junos=False, evo=False)
         expected = None
@@ -494,7 +490,7 @@ class Test_Shared:
             def close(err_str):
                 raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         sha_hash = {}
         sha_hash[1] = True
@@ -507,7 +503,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True):
                 return True, ""
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         sha_hash = {}
         sha_hash[1] = True
@@ -527,7 +523,7 @@ class Test_Shared:
         def remote_cleanup():
             pass
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.rm_remote_tmp = True
         scs.command_list = ["foo"]
@@ -546,7 +542,7 @@ class Test_Shared:
         def limits_rollback():
             pass
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.rm_remote_tmp = True
         scs.command_list = ["foo"]
@@ -566,7 +562,7 @@ class Test_Shared:
         def rmtree(path):
             raise PermissionError
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.local_tmpdir = "foobar"
         monkeypatch.setattr("shutil.rmtree", rmtree)
@@ -582,7 +578,7 @@ class Test_Shared:
         def pool_executor(max_workers, thread_name_prefix):
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr("os.cpu_count", cpu_count)
         monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", pool_executor)
         file_size = 100000
@@ -603,7 +599,7 @@ class Test_Shared:
         def pool_executor(max_workers, thread_name_prefix):
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr("os.cpu_count", cpu_count)
         monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", pool_executor)
         file_size = 100000
@@ -624,7 +620,7 @@ class Test_Shared:
         def pool_executor(max_workers, thread_name_prefix):
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr("os.cpu_count", cpu_count)
         monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", pool_executor)
         file_size = 100000
@@ -645,7 +641,7 @@ class Test_Shared:
         def pool_executor(max_workers, thread_name_prefix):
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr("os.cpu_count", cpu_count)
         monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", pool_executor)
         file_size = 100000
@@ -666,7 +662,7 @@ class Test_Shared:
         def pool_executor(max_workers, thread_name_prefix):
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr("os.cpu_count", cpu_count)
         monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", pool_executor)
         file_size = 100000
@@ -687,7 +683,7 @@ class Test_Shared:
         def pool_executor(max_workers, thread_name_prefix):
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr("os.cpu_count", cpu_count)
         monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", pool_executor)
         file_size = 100000
@@ -708,7 +704,7 @@ class Test_Shared:
         def pool_executor(max_workers, thread_name_prefix):
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr("os.cpu_count", cpu_count)
         monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", pool_executor)
         file_size = 100000
@@ -729,7 +725,7 @@ class Test_Shared:
         def pool_executor(max_workers, thread_name_prefix):
             return True
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr("os.cpu_count", cpu_count)
         monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", pool_executor)
         file_size = 100000
@@ -758,7 +754,7 @@ class Test_Shared:
             def now():
                 pass
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.get_op = True
         scs.remote_file = "foobar"
@@ -779,7 +775,7 @@ class Test_Shared:
             def now():
                 pass
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.get_op = True
         scs.remote_file = "foobar"
@@ -800,7 +796,7 @@ class Test_Shared:
             def now():
                 pass
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.get_op = False
         scs.remote_file = "foobar"
@@ -818,7 +814,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
@@ -832,7 +828,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
@@ -850,7 +846,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.get_op = True
         scs.remote_dir = "/tmp"
@@ -870,7 +866,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.get_op = False
         scs.remote_dir = "/tmp"
@@ -887,7 +883,7 @@ class Test_Shared:
                     "/dev/mapper/vg00-tmp 316488560 64716 303471912   1% /tmp\n"
                 )
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.get_op = False
         scs.remote_dir = "/tmp"
@@ -905,7 +901,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr("shutil.disk_usage", disk_usage)
         monkeypatch.setattr("tempfile.gettempdir", gettempdir)
         monkeypatch.setattr(scs, "close", close)
@@ -926,7 +922,7 @@ class Test_Shared:
         def close(err_str):
             raise SystemExit
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.get_op = True
         scs.local_dir = "/var/tmp"
         monkeypatch.setattr("shutil.disk_usage", disk_usage)
@@ -942,7 +938,7 @@ class Test_Shared:
         def disk_usage(path):
             return [494384795648, 215990648832, 278394146816]
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.get_op = True
         scs.local_dir = "/var/tmp"
         monkeypatch.setattr("shutil.disk_usage", disk_usage)
@@ -965,7 +961,7 @@ class Test_Shared:
         monkeypatch.setattr("os.chdir", chdir)
         monkeypatch.setattr("os.path.expanduser", expanduser)
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.local_tmpdir = "/var/tmp/foo"
         with scs.change_dir() as foo:
             result = foo
@@ -994,14 +990,14 @@ class Test_Shared:
         monkeypatch.setattr("tempfile.mkdtemp", mkdtemp)
         monkeypatch.setattr("shutil.rmtree", rmtree)
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         with scs.tempdir() as foo:
             result = foo
         expected = "/var/tmp/foo"
         assert expected == result
 
     def test_return_tmpdir(self):
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.local_tmpdir = "/var/tmp/foo"
         result = scs.return_tmpdir()
         expected = "/var/tmp/foo"
@@ -1013,7 +1009,7 @@ class Test_Shared:
                 stdout = cmd.split()[4]
                 return True, f"set {stdout}\n"
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         result = scs.find_configured_limits(["foo", "bar"])
         expected = "set foo\nset bar\n"
@@ -1023,7 +1019,7 @@ class Test_Shared:
         def find_configured_limits(*args):
             return ""
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         monkeypatch.setattr(scs, "find_configured_limits", find_configured_limits)
         result = scs.limit_check("ftp")
         expected = []
@@ -1045,7 +1041,7 @@ class Test_Shared:
                 "set groups foo system login retry-options bar\r\n"
             )
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "find_configured_limits", find_configured_limits)
         result = scs.limit_check("ftp")
@@ -1068,7 +1064,7 @@ class Test_Shared:
         def find_configured_limits(*args):
             return "set services ftp connection-limit 4"
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "find_configured_limits", find_configured_limits)
         monkeypatch.setattr(scs, "close", close)
@@ -1080,7 +1076,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True, timeout=10):
                 return True, "foobar"
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.command_list = ["deactivate foo"]
         scs.sshshell = MockSSHShell()
         result = scs.limits_rollback()
@@ -1096,7 +1092,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True, timeout=10):
                 return True, "commit complete\r\nExiting configuration mode"
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.command_list = ["deactivate foo"]
         scs.sshshell = MockSSHShell()
         result = scs.limits_rollback()
@@ -1110,7 +1106,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True, timeout=10):
                 return False, ""
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.remote_tmpdir = "/var/tmp/foo"
         remote_dir = "/tmp/"
@@ -1129,7 +1125,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True, timeout=10):
                 return True, ""
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.get_op = True
         scs.sshshell = MockSSHShell()
         result = scs.remote_cleanup()
@@ -1141,7 +1137,7 @@ class Test_Shared:
             def run(self, cmd, exitcode=True, timeout=10):
                 return True, ""
 
-        scs = init_shared()
+        scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         result = scs.remote_cleanup()
         expected = None
