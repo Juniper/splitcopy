@@ -63,14 +63,19 @@ class SplitCopyPut:
         self.progress = Progress()
 
     def handlesigint(self, sigint, stack):
+        """called when SigInt is received
+        :param sigint:
+        :type int:
+        :param stack:
+        :type frame:
+        """
         logger.debug(f"signal {sigint} received, stack:\n{stack}")
         self.mute = True
         self.progress.stop_progress()
         self.scs.close(hard_close=self.hard_close)
 
     def put(self):
-        """
-        copies file from local host to remote host
+        """copies file from local host to remote host
         performs file split/transfer/join/verify functions
         :returns loop_start: time when transfers started
         :type: datetime object
@@ -210,6 +215,11 @@ class SplitCopyPut:
         return loop_start, loop_end
 
     def get_chunk_info(self):
+        """obtains the remote chunk file size and names
+        :return chunks:
+        :type list:
+        """
+        logger.info("entering get_chunk_info()")
         chunks = []
         for chunk in os.listdir("."):
             if fnmatch.fnmatch(chunk, f"{self.local_file}*"):
@@ -225,8 +235,7 @@ class SplitCopyPut:
         return chunks
 
     def validate_remote_path_put(self):
-        """
-        path provided can be a directory, a new or existing file
+        """path provided can be a directory, a new or existing file
         :return: None
         """
         logger.info("entering validate_remote_path_put()")
@@ -257,7 +266,7 @@ class SplitCopyPut:
         )
 
     def check_target_exists(self):
-        """Function that checks if the target file already exists
+        """checks if the target file already exists
         :return result:
         :type bool:
         """
@@ -268,7 +277,7 @@ class SplitCopyPut:
         return result
 
     def delete_target_remote(self):
-        """Function that attempts to delete the target file
+        """attempts to delete the target file
         :return None:
         """
         logger.info("entering delete_target_remote()")
@@ -280,7 +289,7 @@ class SplitCopyPut:
             self.scs.close(err_str=err)
 
     def determine_local_filesize(self):
-        """Function that determines the local files size in bytes
+        """determines the local files size in bytes
         :return file_size:
         :type int:
         """
@@ -290,7 +299,7 @@ class SplitCopyPut:
         return file_size
 
     def local_sha_put(self):
-        """Function that checks whether a sha hash already exists for the file
+        """checks whether a sha hash already exists for the file
         if not creates one
         :returns None:
         """
@@ -332,8 +341,7 @@ class SplitCopyPut:
         return sha_bin, sha_len, sha_hash
 
     def split_file_local(self, file_size, split_size):
-        """
-        splits file into chunks of size already determined in file_split_size()
+        """splits file into chunks of size already determined in file_split_size()
         This function emulates GNU split.
         :returns None:
         """
@@ -360,7 +368,7 @@ class SplitCopyPut:
             self.scs.close(err_str=err, hard_close=self.hard_close)
 
     def join_files_remote(self, scp_lib, chunks, remote_tmpdir):
-        """Function that concatenates the files chunks into one file on remote host
+        """concatenates the files chunks into one file on remote host
         :returns None:
         """
         logger.info("entering join_files_remote()")
@@ -404,8 +412,7 @@ class SplitCopyPut:
             )
 
     def compare_file_sizes(self, file_size):
-        """Function that obtains the newly combined file size
-        and compares it to the source files size
+        """obtains the newly combined file size, compares it to the source files size
         :param file_size:
         :type int:
         :return None:
@@ -437,7 +444,7 @@ class SplitCopyPut:
         print("local and remote file sizes match")
 
     def remote_sha_put(self, sha_bin, sha_len, sha_hash):
-        """Function that creates a sha hash for the newly combined file
+        """creates a sha hash for the newly combined file
         on the remote host compares against local sha
         :param sha_bin:
         :type string:
@@ -493,8 +500,7 @@ class SplitCopyPut:
             )
 
     def put_files(self, ftp_lib, ssh_lib, scp_lib, chunk, remote_tmpdir, ssh_kwargs):
-        """
-        copies files to remote host via ftp or scp
+        """copies files to remote host via ftp or scp
         :param ftp_lib:
         :type class:
         :param ssh_lib:

@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def pad_string(text):
-    """Function that pads a given string to the terminal width
+    """pads a given string to the terminal width
     :param text:
     :type string:
     :return padded_string:
@@ -46,7 +46,7 @@ def pad_string(text):
 
 
 class SplitCopyShared:
-    """Class containing functions used by both SplitCopyGet
+    """class containing functions used by both SplitCopyGet
     and SplitCopyPut classes
     """
 
@@ -69,7 +69,7 @@ class SplitCopyShared:
         self.sshshell = None
 
     def connect(self, ssh_lib, **ssh_kwargs):
-        """Function to open an ssh session to a remote host
+        """open an ssh session to a remote host
         :param ssh_lib:
         :type class:
         :param ssh_kwargs:
@@ -103,7 +103,7 @@ class SplitCopyShared:
         return self.sshshell, ssh_kwargs
 
     def which_proto(self, copy_proto):
-        """Function that determines which protocol will be used for the transfer.
+        """determines which protocol will be used for the transfer.
         If FTP is selected as protocol, verify that authentication works
         :param copy_proto:
         :type string:
@@ -137,7 +137,7 @@ class SplitCopyShared:
         return copy_proto, passwd
 
     def ftp_port_check(self, socket_lib=socket):
-        """Function that checks whether the ftp port is open
+        """checks whether the ftp port is open
         :return result:
         :type bool:
         """
@@ -155,7 +155,7 @@ class SplitCopyShared:
         return result
 
     def ftp_login_check(self, passwd, ftp_lib=FTP):
-        """Function that verifies ftp authentication on remote host
+        """verifies ftp authentication on remote host
         :param passwd:
         :type string:
         :return result:
@@ -173,7 +173,7 @@ class SplitCopyShared:
         return result
 
     def which_os(self):
-        """Function determines if host is JUNOS/EVO/*nix
+        """determines if host is JUNOS/EVO/*nix
         no support for remote Windows OS running OpenSSH
         :return junos:
         :type bool:
@@ -206,7 +206,7 @@ class SplitCopyShared:
         return junos, evo, bsd_version, sshd_version
 
     def evo_os(self):
-        """Function that determines if host is running EVO
+        """determines if host is running EVO
         :return result:
         :type bool:
         """
@@ -215,7 +215,7 @@ class SplitCopyShared:
         return result
 
     def junos_os(self):
-        """Function that determines if host is running JUNOS
+        """determines if host is running JUNOS
         and if so which bsd and sshd versions are in use
         :return junos:
         :type bool:
@@ -245,7 +245,7 @@ class SplitCopyShared:
         return junos, bsd_version, sshd_version
 
     def which_bsd(self):
-        """Function that determines the BSD version of JUNOS
+        """determines the BSD version of JUNOS
         :return bsd_version:
         :type float:
         """
@@ -258,7 +258,7 @@ class SplitCopyShared:
         return bsd_version
 
     def which_sshd(self):
-        """Function that determines the OpenSSH daemon version
+        """determines the OpenSSH daemon version
         :return sshd_version:
         :type float
         """
@@ -272,7 +272,7 @@ class SplitCopyShared:
         return sshd_version
 
     def req_binaries(self, get_op=False, junos=False, evo=False):
-        """Function ensures required binaries exist on remote host
+        """ensures required binaries exist on remote host
         :param get_op:
         :type bool:
         :param junos:
@@ -343,7 +343,7 @@ class SplitCopyShared:
         return sha_bin, sha_len
 
     def close(self, err_str=None, config_rollback=True, hard_close=False):
-        """Called when we want to exit the script
+        """called when we want to exit the script
         attempts to delete the remote temp directory and close the TCP session
         If hard_close == False, contextmanager will rm the local temp dir
         If not, we must delete it manually
@@ -377,7 +377,7 @@ class SplitCopyShared:
             raise SystemExit(1)
 
     def file_split_size(self, file_size, sshd_version, bsd_version, evo, copy_proto):
-        """Function determines the optimal chunk size. This depends on the python
+        """determines the optimal chunk size. This depends on the python
         version, cpu count, the protocol used and the FreeBSD/OpenSSH versions
         :returns split_size:
         :type int:
@@ -442,7 +442,7 @@ class SplitCopyShared:
         return split_size, executor
 
     def mkdir_remote(self):
-        """Function that creates a tmp directory on the remote host
+        """creates a tmp directory on the remote host
         :returns remote_tmpdir:
         :type string:
         """
@@ -465,7 +465,7 @@ class SplitCopyShared:
         return remote_tmpdir
 
     def storage_check_remote(self, file_size, split_size):
-        """Function that checks whether there is enough storage space on remote node
+        """checks whether there is enough storage space on remote node
         :param file_size:
         :type int:
         :param split_size:
@@ -505,7 +505,7 @@ class SplitCopyShared:
                 self.close(err_str=err)
 
     def storage_check_local(self, file_size):
-        """Function that checks whether there is enough storage space on local node
+        """checks whether there is enough storage space on local node
         :param file_size:
         :type int:
         :return None:
@@ -539,7 +539,7 @@ class SplitCopyShared:
 
     @contextmanager
     def change_dir(self, cleanup=lambda: True):
-        """Function that cds into temp directory.
+        """cds into temp directory.
         Upon script exit, changes back to original directory
         and calls cleanup() to delete the temp directory
         :param cleanup:
@@ -556,8 +556,7 @@ class SplitCopyShared:
 
     @contextmanager
     def tempdir(self):
-        """Function that creates a temp directory,
-        defines how to delete directory upon script exit
+        """creates a temp directory, defines how to delete directory upon script exit
         :returns None:
         """
         self.local_tmpdir = tempfile.mkdtemp()

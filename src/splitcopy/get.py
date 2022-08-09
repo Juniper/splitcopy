@@ -67,6 +67,12 @@ class SplitCopyGet:
         self.progress = Progress()
 
     def handlesigint(self, sigint, stack):
+        """function called when SigInt is received
+        :param sigint:
+        :type int:
+        :param stack:
+        :type frame:
+        """
         logger.debug(f"signal {sigint} received, stack:\n{stack}")
         self.mute = True
         self.progress.stop_progress()
@@ -212,13 +218,13 @@ class SplitCopyGet:
         return loop_start, loop_end
 
     def get_chunk_info(self, remote_tmpdir):
-        """Function that obtains the remote chunk file size and names
+        """obtains the remote chunk file size and names
         :param remote_tmpdir:
         :type string:
         :return chunks:
         :type list:
         """
-        logger.info("entering get_chunk_info")
+        logger.info("entering get_chunk_info()")
         result, stdout = self.sshshell.run(f"ls -l {remote_tmpdir}/")
         if not result:
             self.scs.close(
@@ -261,6 +267,15 @@ class SplitCopyGet:
             )
 
     def parse_target_arg(self):
+        """determines the local file/dir/path based on the target arg
+        :return local_dir:
+        :type string:
+        :return local_file:
+        :type string:
+        :return local_path:
+        :type string:
+        """
+        logger.info("entering parse_target_arg()")
         local_dir = None
         local_file = None
         local_path = None
@@ -291,10 +306,11 @@ class SplitCopyGet:
         return local_dir, local_file, local_path
 
     def expand_remote_dir(self):
-        """function that expands the remote directory to its absolute path
+        """expands the remote directory to its absolute path
         :return None:
         :raises ValueError: if remote cmd fails
         """
+        logger.info("entering expand_remote_dir()")
         if not self.remote_dir or re.match(r"\.", self.remote_dir):
             result, stdout = self.sshshell.run("pwd")
             if result:
@@ -307,11 +323,11 @@ class SplitCopyGet:
                 raise ValueError("Cannot determine the directory on the remote host")
 
     def path_startswith_tilda(self):
-        """Function that expands ~ based path
+        """expands ~ based path to absolute path
         :return None:
         :raises ValueError: if remote cmd fails
         """
-        logger.info("entering path_startswith_tilda")
+        logger.info("entering path_startswith_tilda()")
         if re.match(r"~", self.remote_dir):
             result, stdout = self.sshshell.run(f"ls -d {self.remote_dir}")
             if result:
@@ -324,38 +340,41 @@ class SplitCopyGet:
                 raise ValueError(f"unable to expand remote path {self.remote_path}")
 
     def verify_path_is_not_directory(self):
-        """Function that verifies remote path is not a directory
+        """verifies remote path is not a directory
         :return None:
         :raises ValueError: if path is a directory
         """
+        logger.info("entering verify_path_is_not_directory()")
         result, stdout = self.sshshell.run(f"test -d {self.remote_path}")
         if result:
             raise ValueError("src path is a directory, not a file")
 
     def verify_file_exists(self):
-        """Function that verifies remote path exists
+        """verifies remote path exists
         :return None:
         :raises ValueError: if test fails
         """
+        logger.info("entering verify_file_exists()")
         result, stdout = self.sshshell.run(f"test -e {self.remote_path}")
         if not result:
             raise ValueError("file on remote host doesn't exist")
 
     def verify_file_is_readable(self):
-        """Function that verifies the remote file is readable
+        """verifies the remote file is readable
         :return None
         :raises ValueError: if test fails
         """
+        logger.info("entering verify_file_is_readable()")
         result, stdout = self.sshshell.run(f"test -r {self.remote_path}")
         if not result:
             raise ValueError("file on remote host is not readable")
 
     def verify_file_is_symlink(self):
-        """Function that checks if file is a symlink, if true,
-        rewrite remote_path with linked file path
+        """if file is a symlink, rewrite remote_path with linked file path
         :return None
         :raises ValueError: if test fails
         """
+        logger.info("entering verify_file_is_symlink()")
         result, stdout = self.sshshell.run(f"test -L {self.remote_path}")
         if result:
             logger.info("file is a symlink")
@@ -370,15 +389,16 @@ class SplitCopyGet:
                 )
 
     def delete_target_local(self):
-        """Function that deletes the target file if it already exists
+        """deletes the target file if it already exists
         :return None:
         """
+        logger.info("entering delete_target_local()")
         file_path = self.local_dir + os.path.sep + self.local_file
         if os.path.exists(file_path):
             os.remove(file_path)
 
     def remote_filesize(self):
-        """Function that determines the remote file size in bytes
+        """determines the remote file size in bytes
         :return file_size:
         :type int:
         """
@@ -395,7 +415,7 @@ class SplitCopyGet:
         return file_size
 
     def remote_sha_get(self):
-        """Function that checks for existence of a sha hash file
+        """checks for existence of a sha hash file
         if none found, generates a sha hash for the remote file to be copied
         :return sha_bin:
         :type string:
@@ -441,23 +461,24 @@ class SplitCopyGet:
         return sha_hash
 
     def find_existing_sha_files(self):
-        """Function that checks for presence of existing sha* files
+        """checks for presence of existing sha* files
         :return result:
         :type bool:
         :return stdout:
         :type string:
         """
+        logger.info("entering find_existing_sha_files()")
         result, stdout = self.sshshell.run(f"ls -1 {self.remote_path}.sha*")
         return result, stdout
 
     def process_existing_sha_files(self, output):
-        """Function that reads existing sha files,
-        puts the hash and sha length info a dict()
+        """reads existing sha files, puts the hash and sha length info a dict()
         :param output:
         :type string:
         :returns sha_hash:
         :type dict:
         """
+        logger.info("entering process_existing_sha_files()")
         sha_hash = {}
         for line in output.splitlines():
             line = line.rstrip()
@@ -476,7 +497,8 @@ class SplitCopyGet:
         return sha_hash
 
     def split_file_remote(self, scp_lib, file_size, split_size, remote_tmpdir):
-        """Function to split file on remote host
+        """writes a script into a file, copies it to the remote host then executes it.
+        the source file is split into multiple smaller chunks ready to be copied
         :param scp_lib:
         :type class:
         :param file_size:
@@ -519,7 +541,7 @@ class SplitCopyGet:
             self.scs.close(err_str, hard_close=self.hard_close)
 
     def get_files(self, ftp_lib, ssh_lib, scp_lib, chunk, remote_tmpdir, ssh_kwargs):
-        """Function that copies files from remote host via ftp or scp
+        """copies files from remote host via ftp or scp
         :param ftp_lib:
         :type class:
         :param ssh_lib:
@@ -535,6 +557,7 @@ class SplitCopyGet:
         :raises TransferError: if file transfer fails 3 times
         :returns None:
         """
+        logger.info("entering get_files()")
         err_count = 0
         file_name = chunk[0]
         file_size = chunk[1]
@@ -602,7 +625,7 @@ class SplitCopyGet:
             raise TransferError
 
     def join_files_local(self):
-        """Funcion that concatenates the file chunks into one file on local host
+        """concatenates the file chunks into one file on local host
         :returns None:
         """
         logger.info("entering join_files_local()")
@@ -625,7 +648,7 @@ class SplitCopyGet:
             )
 
     def local_sha_get(self, sha_hash):
-        """Function that generates a sha hash for the combined file on the local host
+        """generates a sha hash for the combined file on the local host
         :returns None:
         """
         logger.info("entering local_sha_get()")
