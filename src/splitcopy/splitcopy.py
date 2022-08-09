@@ -136,15 +136,14 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
     if args.nocurses:
         use_curses = False
 
-    try:
-        local_file, local_dir, local_path = parse_source_arg_as_local(source)
-    except FileNotFoundError:
-        pass
-    except PermissionError:
-        raise SystemExit(
-            f"source file '{source}' exists, but cannot be read due to a permissions error"
-        )
-    except IsADirectoryError:
+    if os.path.isfile(source):
+        try:
+            local_file, local_dir, local_path = parse_source_arg_as_local(source)
+        except PermissionError:
+            raise SystemExit(
+                f"source file '{source}' exists, but cannot be read due to a permissions error"
+            )
+    elif os.path.isdir(source):
         raise SystemExit("source arg is a directory, not a file")
 
     if not local_file and os.path.splitdrive(source)[0]:
