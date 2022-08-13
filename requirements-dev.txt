@@ -1,6 +1,5 @@
 pytest
 pytest-mock
 pytest-cov
-pylint
-mypy
+black
 codecov
