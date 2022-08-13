@@ -235,18 +235,24 @@ class SplitCopyPut:
         return chunks
 
     def validate_remote_path_put(self):
-        """path provided can be a directory, a new or existing file
+        """path provided can be a full path to a file, or just a directory
         :return: None
         """
         logger.info("entering validate_remote_path_put()")
+        try:
+            self.expand_remote_path()
+            self.path_startswith_tilda()
+        except ValueError as err:
+            self.scs.close(
+                err_str=err,
+                hard_close=self.hard_close,
+            )
+
         if self.sshshell.run(f"test -d {self.remote_path}")[0]:
             # target path provided is a directory
             self.remote_file = self.local_file
             self.remote_dir = self.remote_path.rstrip("/")
-        elif (
-            self.sshshell.run(f"test -f {self.remote_path}")[0]
-            or self.sshshell.run(f"test -d {os.path.dirname(self.remote_path)}")[0]
-        ):
+        elif self.sshshell.run(f"test -d {os.path.dirname(self.remote_path)}")[0]:
             if os.path.basename(self.remote_path) != self.local_file:
                 # target path provided was a full path, file name does not match src
                 # honour the change of file name
@@ -267,6 +273,37 @@ class SplitCopyPut:
         # update SplitCopyShared with these values
         self.scs.remote_dir = self.remote_dir
         self.scs.remote_file = self.remote_file
+
+    def expand_remote_path(self):
+        """expands the remote path to its absolute path
+        :return None:
+        :raises ValueError: if remote cmd fails
+        """
+        logger.info("entering expand_remote_path()")
+        if not self.remote_path or re.match(r"\.", self.remote_path):
+            result, stdout = self.sshshell.run("pwd")
+            if result:
+                pwd = stdout.split("\n")[1].rstrip()
+                self.remote_path = f"{pwd}{self.remote_path.lstrip('.')}"
+                logger.debug(f"remote_path now = {self.remote_path}")
+            else:
+                raise ValueError(
+                    "Cannot determine the current working directory on the remote host"
+                )
+
+    def path_startswith_tilda(self):
+        """expands ~ based path to absolute path
+        :return None:
+        :raises ValueError: if remote cmd fails
+        """
+        logger.info("entering path_startswith_tilda()")
+        if re.match(r"~", self.remote_path):
+            result, stdout = self.sshshell.run(f"ls -d {self.remote_path}")
+            if result:
+                self.remote_path = stdout.split("\n")[1].rstrip()
+                logger.debug(f"remote_path now = {self.remote_path}")
+            else:
+                raise ValueError(f"unable to expand remote path {self.remote_path}")
 
     def check_target_exists(self):
         """checks if the target file already exists

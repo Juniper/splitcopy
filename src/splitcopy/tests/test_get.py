@@ -1,5 +1,6 @@
 import concurrent.futures
 import datetime
+import os
 import re
 import time
 from contextlib import contextmanager
@@ -578,6 +579,24 @@ class TestSplitCopyGet:
         with raises(ValueError):
             scget.expand_remote_dir()
 
+    def test_expand_remote_dir_none(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "foo@bar:~$ pwd\n" "/homes/foo/bar\n" "foo@bar:~$"
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        scget.remote_path = "testfile"
+        scget.remote_dir = os.path.dirname(scget.remote_path)
+        scget.remote_file = os.path.basename(scget.remote_path)
+        scget.expand_remote_dir()
+        assert (
+            scget.remote_dir == "/homes/foo/bar"
+            and scget.remote_path == "/homes/foo/bar/testfile"
+        )
+
     def test_expand_remote_dir(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
@@ -587,12 +606,31 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_dir = "."
-        scget.remote_file = "testfile"
+        scget.remote_path = "./testfile"
+        scget.remote_dir = os.path.dirname(scget.remote_path)
+        scget.remote_file = os.path.basename(scget.remote_path)
         scget.expand_remote_dir()
         assert (
             scget.remote_dir == "/homes/foo/bar"
             and scget.remote_path == "/homes/foo/bar/testfile"
+        )
+
+    def test_expand_remote_dir2(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "foo@bar:~$ pwd\n" "/homes/foo/bar\n" "foo@bar:~$"
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        scget.remote_path = "./tmp/testfile"
+        scget.remote_dir = os.path.dirname(scget.remote_path)
+        scget.remote_file = os.path.basename(scget.remote_path)
+        scget.expand_remote_dir()
+        assert (
+            scget.remote_dir == "/homes/foo/bar/tmp"
+            and scget.remote_path == "/homes/foo/bar/tmp/testfile"
         )
 
     def test_path_startswith_tilda_cmdfail(self):

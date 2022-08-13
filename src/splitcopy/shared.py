@@ -57,7 +57,6 @@ class SplitCopyShared:
         self.passwd = kwargs.get("passwd")
         self.ssh_key = kwargs.get("ssh_key")
         self.ssh_port = kwargs.get("ssh_port")
-        self.remote_path = kwargs.get("remote_path")
         self.local_dir = kwargs.get("local_dir")
         self.get_op = kwargs.get("get")
         self.remote_dir = ""

@@ -268,7 +268,6 @@ class SplitCopyGet:
         # update SplitCopyShared with these values
         self.scs.remote_file = self.remote_file
         self.scs.remote_dir = self.remote_dir
-        self.scs.remote_path = self.remote_path
 
     def parse_target_arg(self):
         """determines the local file/dir/path based on the target arg
@@ -318,7 +317,8 @@ class SplitCopyGet:
         if not self.remote_dir or re.match(r"\.", self.remote_dir):
             result, stdout = self.sshshell.run("pwd")
             if result:
-                self.remote_dir = stdout.split("\n")[1].rstrip()
+                pwd = stdout.split("\n")[1].rstrip()
+                self.remote_dir = f"{pwd}{self.remote_dir.lstrip('.')}"
                 self.remote_path = f"{self.remote_dir}/{self.remote_file}"
                 logger.debug(
                     f"remote_dir now = {self.remote_dir}, remote_path now = {self.remote_path}"
@@ -337,7 +337,7 @@ class SplitCopyGet:
             if result:
                 self.remote_dir = stdout.split("\n")[1].rstrip()
                 self.remote_path = f"{self.remote_dir}/{self.remote_file}"
-                logger.info(
+                logger.debug(
                     f"remote_dir now = {self.remote_dir}, remote_path now = {self.remote_path}"
                 )
             else:
