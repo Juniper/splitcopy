@@ -223,6 +223,9 @@ class TestSplitCopyGet:
                 time.sleep(0.1)
                 scget.progress.totals["percent_done"] = n
 
+        def compare_file_sizes(*args):
+            pass
+
         monkeypatch.setattr(scget, "validate_remote_path_get", validate_remote_path_get)
         monkeypatch.setattr(scget, "parse_target_arg", parse_target_arg)
         monkeypatch.setattr(scget, "delete_target_local", delete_target_local)
@@ -233,6 +236,7 @@ class TestSplitCopyGet:
         monkeypatch.setattr(scget, "get_files", get_files)
         monkeypatch.setattr(scget, "join_files_local", join_files_local)
         monkeypatch.setattr(scget, "local_sha_get", local_sha_get)
+        monkeypatch.setattr(scget, "compare_file_sizes", compare_file_sizes)
         thread = Thread(
             name="inc_percentage_done",
             target=inc_percentage,
@@ -279,6 +283,9 @@ class TestSplitCopyGet:
                 time.sleep(0.1)
                 scget.progress.totals["percent_done"] = n
 
+        def compare_file_sizes(*args):
+            pass
+
         scget.noverify = True
         monkeypatch.setattr(scget, "validate_remote_path_get", validate_remote_path_get)
         monkeypatch.setattr(scget, "parse_target_arg", parse_target_arg)
@@ -288,6 +295,7 @@ class TestSplitCopyGet:
         monkeypatch.setattr(scget, "get_chunk_info", get_chunk_info)
         monkeypatch.setattr(scget, "get_files", get_files)
         monkeypatch.setattr(scget, "join_files_local", join_files_local)
+        monkeypatch.setattr(scget, "compare_file_sizes", compare_file_sizes)
         thread = Thread(
             name="inc_percentage_done",
             target=inc_percentage,
@@ -1190,3 +1198,27 @@ class TestSplitCopyGet:
         scget.local_dir = "/var/tmp"
         with raises(SystemExit):
             scget.local_sha_get(sha_hash)
+
+    def test_compare_file_sizes(self, capsys, monkeypatch: MonkeyPatch):
+        scget = SplitCopyGet()
+
+        def getsize(*args):
+            return 781321216
+
+        monkeypatch.setattr("os.path.getsize", getsize)
+        result = scget.compare_file_sizes(781321216)
+        captured = capsys.readouterr()
+        result = captured.out
+        expected = "local and remote file sizes match\n"
+        assert result == expected
+
+    def test_compare_file_sizes_fail(self, capsys, monkeypatch: MonkeyPatch):
+        scget = SplitCopyGet()
+        scget.scs = MockSplitCopyShared()
+
+        def getsize(*args):
+            return 781311
+
+        monkeypatch.setattr("os.path.getsize", getsize)
+        with raises(SystemExit):
+            scget.compare_file_sizes(781321216)

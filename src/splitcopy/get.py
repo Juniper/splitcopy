@@ -207,6 +207,9 @@ class SplitCopyGet:
         if command_list:
             self.scs.limits_rollback()
 
+        # check local file size is correct
+        self.compare_file_sizes(file_size)
+
         if self.noverify:
             print(
                 f"file has been successfully copied to {self.local_dir}/{self.local_file}"
@@ -659,6 +662,26 @@ class SplitCopyGet:
                 err_str=err_str,
                 hard_close=self.hard_close,
             )
+
+    def compare_file_sizes(self, file_size):
+        """obtains the newly combined file size, compares it to the source files size
+        :param file_size:
+        :type int:
+        :return None:
+        """
+        logger.info("entering compare_file_sizes()")
+        combined_file_size = os.path.getsize(self.local_path)
+        if combined_file_size != file_size:
+            self.scs.close(
+                err_str=(
+                    f"combined file size is {combined_file_size}, file "
+                    f"{self.host}:{self.remote_dir}/{self.remote_file} size "
+                    f"is {file_size}. Unexpected mismatch in file size. Please retry"
+                ),
+                config_rollback=False,
+                hard_close=self.hard_close,
+            )
+        print("local and remote file sizes match")
 
     def local_sha_get(self, sha_hash):
         """generates a sha hash for the combined file on the local host
