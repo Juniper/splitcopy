@@ -15,6 +15,7 @@ import re
 import select
 import socket
 import sys
+import time
 import traceback
 import warnings
 
@@ -37,7 +38,6 @@ _SHELL_PROMPT = re.compile(r"(% |# |\$ |> |%\t)$")
 _SELECT_WAIT = 0.1
 _RECVSZ = 1024
 _EXIT_CODE = re.compile(r"\r\n0\r\n", re.MULTILINE)
-_PASTE_BRACKET = re.compile(r"\x1b\[\?2004l\r|\x1b\[\?2004h", re.MULTILINE)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ class SSHShell:
         self.ssh_port = self.kwargs.get("ssh_port")
         self._chan = None
         self._transport = None
+        self.use_shell = False
 
     def __enter__(self):
         self.socket_open()
@@ -66,8 +67,7 @@ class SSHShell:
             self.close_transport()
 
     def socket_open(self):
-        """
-        wrapper around proxy or direct methods
+        """wrapper around proxy or direct methods
         :return None:
         """
         logger.info("entering socket_open()")
@@ -76,8 +76,7 @@ class SSHShell:
             self.socket = self.socket_direct()
 
     def socket_proxy(self):
-        """
-        checks the .ssh/config file for any proxy commands to reach host
+        """checks the .ssh/config file for any proxy commands to reach host
         :return sock:
         :type subprocess:
         """
@@ -94,8 +93,7 @@ class SSHShell:
         return sock
 
     def socket_direct(self):
-        """
-        open a socket to remote host
+        """open a socket to remote host
         :return sock:
         :type socket object:
         """
@@ -112,8 +110,7 @@ class SSHShell:
         return sock
 
     def get_pkey_from_file(self, pkey_type, pkey_path):
-        """
-        attempt to decode the private key
+        """attempt to decode the private key
         :param pkey_type: key algorithm
         :type string:
         :param pkey_path: path to key file
@@ -142,16 +139,14 @@ class SSHShell:
         return pkey
 
     def transport_open(self):
-        """
-        opens a transport to the host
+        """opens a transport to the host
         :return: None
         """
         self._transport = paramiko.Transport(self.socket)
         self._transport.start_client()
 
     def worker_thread_auth(self):
-        """
-        authentication has succeeded previously, simplify nth time around
+        """authentication has succeeded previously, simplify nth time around
         :return result:
         :type bool:
         """
@@ -171,8 +166,7 @@ class SSHShell:
         return result
 
     def main_thread_auth(self):
-        """
-        determines what authentication methods the server supports
+        """determines what authentication methods the server supports
         attempts the available authentication methods in order:
         * publickey auth
         * keyboard-interactive auth
@@ -217,8 +211,7 @@ class SSHShell:
         return result
 
     def ask_password(self):
-        """
-        obtains the password for PasswordAuthentication
+        """obtains the password for PasswordAuthentication
         :return password:
         :type string:
         """
@@ -230,8 +223,7 @@ class SSHShell:
         return password
 
     def password_auth(self):
-        """
-        attempts Password Authentication
+        """attempts Password Authentication
         :raises AuthenticationException: if auth fails
         :return result:
         :type bool:
@@ -250,7 +242,7 @@ class SSHShell:
         return result
 
     def auth_using_keyb(self):
-        """Attempts keyboard-interactive authentication
+        """attempts keyboard-interactive authentication
         :return result:
         :type bool:
         """
@@ -277,8 +269,7 @@ class SSHShell:
         return result
 
     def auth_using_agent(self):
-        """
-        Attempts publickey authentication using keys held by ssh-agent
+        """attempts publickey authentication using keys held by ssh-agent
         :return result:
         :type bool:
         """
@@ -299,8 +290,7 @@ class SSHShell:
         return result
 
     def auth_using_keyfiles(self):
-        """
-        Attempts publickey authentication using keys found in ~/.ssh
+        """attempts publickey authentication using keys found in ~/.ssh
         Iterates over any keys found
         :return result:
         :type bool:
@@ -331,8 +321,7 @@ class SSHShell:
         return result
 
     def key_auth_common(self, pkey_type, pkey_path):
-        """
-        Attempts authentication using specified key and type
+        """attempts authentication using specified key and type
         :param pkey_type: key algorithm
         :type string:
         :param pkey_path: path to key file
@@ -358,8 +347,7 @@ class SSHShell:
         return result
 
     def auth_using_provided_keyfile(self):
-        """
-        As key type is unknown, attempt publickey authentication
+        """as key type is unknown, attempt publickey authentication
         using provided keyfile by looping through supported types
         :return result:
         :type bool:
@@ -378,8 +366,7 @@ class SSHShell:
         return result
 
     def is_authenticated(self):
-        """
-        verifies if authentication was successful
+        """verifies if authentication was successful
         :return result:
         :type bool:
         """
@@ -390,25 +377,23 @@ class SSHShell:
         return result
 
     def channel_open(self):
-        """
-        opens a channel of type 'session' over existing transport
+        """opens a channel of type 'session' over existing transport
         :return None:
         """
         logger.info("entering channel_open()")
         self._chan = self._transport.open_session()
 
     def invoke_shell(self):
-        """
-        opens a pty on remote host
+        """request a pty and interactive shell on the channel
         :return None:
         """
         logger.info("entering invoke_shell()")
+        self.use_shell = True
         self._chan.get_pty()
         self._chan.invoke_shell()
 
     def stdout_read(self, timeout):
-        """
-        reads data off the socket
+        """reads data off the socket
         :param timeout: amount of time before timeout is raised
         :type int:
         :returns output: stdout from the cmd
@@ -427,17 +412,15 @@ class SSHShell:
                 raise TimeoutError
         return output
 
-    def set_keepalive(self):
-        """
-        ensures session stays up if inactive for long period
+    def set_transport_keepalive(self):
+        """ensures session stays up if inactive for long period
         not suitable for scp, will terminate session with BadUseError if enabled
         :return None:
         """
         self._transport.set_keepalive(60)
 
     def write(self, cmd):
-        """
-        Sends a cmd + newline char over the channel
+        """sends a cmd + newline char over the channel
         :param cmd: cmd to be sent over the channel
         :type string:
         :return None:
@@ -446,26 +429,25 @@ class SSHShell:
         logger.info(f"sent '{cmd}'")
 
     def close(self):
-        """
-        terminates both the channel (if present) and the underlying transport
+        """terminates both the channel (if present) and the underlying transport
         :return None:
         """
         self.close_channel()
         self.close_transport()
 
     def close_channel(self):
-        """
-        terminates the channel
+        """terminates the channel
         :return None:
         """
         try:
             self._chan.close()
         except AttributeError:
             pass
+        except EOFError:
+            pass
 
     def close_transport(self):
-        """
-        terminates the underlying transport
+        """terminates the underlying transport
         :return None:
         """
         try:
@@ -473,10 +455,9 @@ class SSHShell:
         except AttributeError:
             pass
 
-    def restart_pty(self):
-        """
-        closes then re-opens the channel using the existing transport
-        then opens a new pty
+    def restart_shell(self):
+        """closes then re-opens the channel using the existing transport
+        then requests a new pty and interactive shell
         :return None:
         """
         if self._chan is not None:
@@ -485,8 +466,33 @@ class SSHShell:
         self.invoke_shell()
 
     def run(self, cmd, timeout=30, exitcode=True):
+        """wrapper around functions that send a cmd to a remote host.
+        which function gets called depends on whether an interactive shell is in use.
+        if exitcode is True will check its exit status
+        :param cmd: cmd to run on remote host
+        :type string:
+        :param timeout: amount of time before timeout is raised
+        :type float:
+        :param exitcode: toggles whether to check for exit status or not
+        :type bool:
+        :return result: whether successful or not
+        :type bool:
+        :return stdout: the output of the command
+        :type string:
         """
-        sends a cmd to remote host, if exitcode is True will check its exit status
+        result = False
+        stdout = ""
+        if self.use_shell:
+            result, stdout = self.shell_cmd(cmd, timeout, exitcode)
+        else:
+            result, stdout = self.exec_cmd(cmd, timeout)
+        return result, stdout
+
+    def shell_cmd(self, cmd, timeout, exitcode):
+        """sends a cmd to remote host over the existing channel and shell
+        if exitcode is True will check its exit status
+        if a timeout occurs, will attempt to close the existing channel
+        then request a new channel, pty and interactive shell
         :param cmd: cmd to run on remote host
         :type string:
         :param timeout: amount of time before timeout is raised
@@ -503,14 +509,50 @@ class SSHShell:
         try:
             self.write(cmd)
             stdout = self.stdout_read(timeout)
-            stdout = re.sub(_PASTE_BRACKET, "", stdout)
+            logger.debug(stdout)
             if exitcode:
                 self.write("echo $?")
                 rc = self.stdout_read(timeout)
-                rc = re.sub(_PASTE_BRACKET, "", rc)
                 if re.search(_EXIT_CODE, rc):
                     result = True
         except TimeoutError:
             stdout = f"timeout running '{cmd}'"
-            self.restart_pty()
+            self.restart_shell()
+        return result, stdout
+
+    def exec_cmd(self, cmd, timeout):
+        """execute a command on the remote host.
+        a new channel is opened prior to the command being executed.
+        the channel is closed once the cmds exit status has been received
+        :param cmd: cmd to run on remote host
+        :type string:
+        :param timeout: amount of time before timeout is raised
+        :type float:
+        :param exitcode: toggles whether to check for exit status or not
+        :type bool:
+        :return result: whether successful or not
+        :type bool:
+        :return stdout: the output of the command
+        :type string:
+        :param str command: the command to execute
+        :raises: SSHException if the server fails to execute the command
+
+        """
+        result = False
+        exit_code = None
+        bufsize = -1
+        logger.info("entering exec_cmd()")
+        chan = self._transport.open_session(timeout=timeout)
+        chan.settimeout(timeout)
+        chan.exec_command(cmd)
+        stdout = chan.makefile("r", bufsize)
+        stdout = "".join(stdout.readlines()).rstrip()
+        while exit_code is None:
+            if chan.exit_status_ready():
+                exit_code = chan.recv_exit_status()
+            else:
+                time.sleep(0.1)
+        if exit_code == 0:
+            result = True
+        chan.close()
         return result, stdout

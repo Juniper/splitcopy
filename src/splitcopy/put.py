@@ -61,6 +61,7 @@ class SplitCopyPut:
         self.remote_dir = ""
         self.remote_file = ""
         self.progress = Progress()
+        self.juniper_platform = False
 
     def handlesigint(self, sigint, stack):
         """called when SigInt is received
@@ -89,15 +90,29 @@ class SplitCopyPut:
             "key_filename": self.ssh_key,
             "ssh_port": self.ssh_port,
         }
+        junos = False
+        evo = False
+        bsd_version = float()
+        sshd_version = float()
 
         # handle sigint gracefully on *nix
         signal.signal(signal.SIGINT, self.handlesigint)
 
-        # connect to host
+        # connect to host, open ssh transport
         self.sshshell, ssh_kwargs = self.scs.connect(SSHShell, **ssh_kwargs)
 
-        # determine remote host os
-        junos, evo, bsd_version, sshd_version = self.scs.which_os()
+        # is this a juniper cli?
+        if self.scs.juniper_cli_check():
+            self.juniper_platform = True
+            # in order to drop into shell from cli mode, a pty and interactive shell are required
+            # request a channel
+            self.sshshell.channel_open()
+            # request a pty and an interactive shell session
+            self.sshshell.invoke_shell()
+            # remove the welcome message from the socket
+            self.sshshell.stdout_read(timeout=30)
+            # determine the OS
+            junos, evo, bsd_version, sshd_version = self.scs.which_os()
 
         # verify which protocol to use
         self.copy_proto, self.passwd = self.scs.which_proto(self.copy_proto)
@@ -283,7 +298,10 @@ class SplitCopyPut:
         if not self.remote_path or re.match(r"\.", self.remote_path):
             result, stdout = self.sshshell.run("pwd")
             if result:
-                pwd = stdout.split("\n")[1].rstrip()
+                if self.juniper_platform:
+                    pwd = stdout.split("\n")[1].rstrip()
+                else:
+                    pwd = stdout
                 self.remote_path = f"{pwd}{self.remote_path.lstrip('.')}"
                 logger.debug(f"remote_path now = {self.remote_path}")
             else:
@@ -300,7 +318,10 @@ class SplitCopyPut:
         if re.match(r"~", self.remote_path):
             result, stdout = self.sshshell.run(f"ls -d {self.remote_path}")
             if result:
-                self.remote_path = stdout.split("\n")[1].rstrip()
+                if self.juniper_platform:
+                    self.remote_path = stdout.split("\n")[1].rstrip()
+                else:
+                    self.remote_path = stdout
                 logger.debug(f"remote_path now = {self.remote_path}")
             else:
                 raise ValueError(f"unable to expand remote path {self.remote_path}")
@@ -470,7 +491,10 @@ class SplitCopyPut:
                 config_rollback=False,
                 hard_close=self.hard_close,
             )
-        combined_file_size = int(stdout.split("\r\n")[1].split()[4])
+        if self.juniper_platform:
+            combined_file_size = int(stdout.split("\r\n")[1].split()[4])
+        else:
+            combined_file_size = int(stdout.split()[4])
         if combined_file_size != file_size:
             self.scs.close(
                 err_str=(

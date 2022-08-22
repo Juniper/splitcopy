@@ -66,6 +66,7 @@ class SplitCopyGet:
         self.remote_file = ""
         self.filesize_path = self.remote_path
         self.progress = Progress()
+        self.juniper_platform = False
 
     def handlesigint(self, sigint, stack):
         """function called when SigInt is received
@@ -94,6 +95,10 @@ class SplitCopyGet:
             "key_filename": self.ssh_key,
             "ssh_port": self.ssh_port,
         }
+        junos = False
+        evo = False
+        bsd_version = float()
+        sshd_version = float()
 
         # handle sigint gracefully on *nix
         signal.signal(signal.SIGINT, self.handlesigint)
@@ -101,8 +106,18 @@ class SplitCopyGet:
         # connect to host
         self.sshshell, ssh_kwargs = self.scs.connect(SSHShell, **ssh_kwargs)
 
-        # determine remote host os
-        junos, evo, bsd_version, sshd_version = self.scs.which_os()
+        # is this a juniper cli?
+        if self.scs.juniper_cli_check():
+            self.juniper_platform = True
+            # in order to drop into shell from cli mode, a pty and interactive shell are required
+            # request a channel
+            self.sshshell.channel_open()
+            # request a pty and an interactive shell session
+            self.sshshell.invoke_shell()
+            # remove the welcome message from the socket
+            self.sshshell.stdout_read(timeout=30)
+            # determine the OS
+            junos, evo, bsd_version, sshd_version = self.scs.which_os()
 
         # verify which protocol to use
         self.copy_proto, self.passwd = self.scs.which_proto(self.copy_proto)
@@ -320,7 +335,10 @@ class SplitCopyGet:
         if not self.remote_dir or re.match(r"\.", self.remote_dir):
             result, stdout = self.sshshell.run("pwd")
             if result:
-                pwd = stdout.split("\n")[1].rstrip()
+                if self.juniper_platform:
+                    pwd = stdout.split("\n")[1].rstrip()
+                else:
+                    pwd = stdout
                 self.remote_dir = f"{pwd}{self.remote_dir.lstrip('.')}"
                 self.remote_path = f"{self.remote_dir}/{self.remote_file}"
                 logger.debug(
@@ -338,7 +356,10 @@ class SplitCopyGet:
         if re.match(r"~", self.remote_dir):
             result, stdout = self.sshshell.run(f"ls -d {self.remote_dir}")
             if result:
-                self.remote_dir = stdout.split("\n")[1].rstrip()
+                if self.juniper_platform:
+                    self.remote_dir = stdout.split("\n")[1].rstrip()
+                else:
+                    self.remote_dir = stdout
                 self.remote_path = f"{self.remote_dir}/{self.remote_file}"
                 logger.debug(
                     f"remote_dir now = {self.remote_dir}, remote_path now = {self.remote_path}"
@@ -388,7 +409,10 @@ class SplitCopyGet:
             logger.info("file is a symlink")
             result, stdout = self.sshshell.run(f"ls -l {self.remote_path}")
             if result:
-                linked_path = stdout.split()[-2].rstrip()
+                if self.juniper_platform:
+                    linked_path = stdout.split()[-2].rstrip()
+                else:
+                    linked_path = stdout.split()[-1]
                 linked_dir = os.path.dirname(linked_path)
                 linked_file = os.path.basename(linked_path)
             else:
@@ -421,7 +445,10 @@ class SplitCopyGet:
         logger.info("entering remote_filesize()")
         result, stdout = self.sshshell.run(f"ls -l {self.filesize_path}")
         if result:
-            file_size = int(stdout.split("\n")[1].split()[4])
+            if self.juniper_platform:
+                file_size = int(stdout.split("\n")[1].split()[4])
+            else:
+                file_size = int(stdout.split()[4])
         else:
             self.scs.close(
                 err_str="cannot determine remote file size",
@@ -506,7 +533,10 @@ class SplitCopyGet:
             logger.info(f"{line} file found")
             result, stdout = self.sshshell.run(f"cat {line}")
             if result:
-                sha_hash[sha_num] = stdout.split("\n")[1].split()[0].rstrip()
+                if self.juniper_platform:
+                    sha_hash[sha_num] = stdout.split("\n")[1].split()[0].rstrip()
+                else:
+                    sha_hash[sha_num] = stdout.split()[0]
                 logger.info(f"sha_hash[{sha_num}] added")
             else:
                 logger.info(f"unable to read remote sha file {line}")

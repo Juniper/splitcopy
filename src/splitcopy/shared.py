@@ -83,16 +83,12 @@ class SplitCopyShared:
             self.sshshell = ssh_lib(**ssh_kwargs)
             self.sshshell.socket_open()
             self.sshshell.transport_open()
+            self.sshshell.set_transport_keepalive()
             if self.sshshell.main_thread_auth():
-                self.sshshell.channel_open()
-                self.sshshell.invoke_shell()
                 ssh_kwargs = self.sshshell.kwargs
                 logger.debug(f"ssh_kwargs returned are: {ssh_kwargs}")
             else:
                 raise SSHException("authentication failed")
-            self.sshshell.set_keepalive()
-            # remove the welcome message from the socket
-            self.sshshell.stdout_read(timeout=30)
         except Exception as err:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
             if self.sshshell is not None:
@@ -175,6 +171,15 @@ class SplitCopyShared:
             result = True
         return result
 
+    def juniper_cli_check(self):
+        logger.info("entering juniper_cli_check()")
+        result, stdout = self.sshshell.run("uname")
+        if result and stdout == "\nerror: unknown command: uname":
+            # this is junos or evo CLI. exit code is always 0.
+            return True
+        else:
+            return False
+
     def which_os(self):
         """determines if host is JUNOS/EVO/*nix
         no support for remote Windows OS running OpenSSH
@@ -200,10 +205,18 @@ class SplitCopyShared:
         host_os = stdout.split("\n")[1].rstrip()
         if host_os == "Linux" and self.evo_os():
             evo = True
-        else:
-            junos, bsd_version, sshd_version = self.junos_os()
+        elif host_os == "JUNOS":
+            junos = True
+            bsd_version = 6.3
+            sshd_version = self.which_sshd()
+        elif host_os == "FreeBSD" and self.junos_os():
+            junos = True
+            bsd_version = self.which_bsd()
+            sshd_version = self.which_sshd()
         logger.info(
-            f"evo = {evo}, junos = {junos}, bsd_version = {bsd_version}, "
+            f"evo = {evo}, "
+            f"junos = {junos}, "
+            f"bsd_version = {bsd_version}, "
             f"sshd_version = {sshd_version}"
         )
         return junos, evo, bsd_version, sshd_version
@@ -219,33 +232,12 @@ class SplitCopyShared:
 
     def junos_os(self):
         """determines if host is running JUNOS
-        and if so which bsd and sshd versions are in use
-        :return junos:
+        :return result:
         :type bool:
-        :return bsd_version:
-        :type float:
-        :return sshd_version:
-        :type float:
         """
         logger.info("entering junos_os()")
-        junos = False
-        bsd_version = float()
-        sshd_version = float()
-        result, stdout = self.sshshell.run("uname -i")
-        if not result:
-            self.close(err_str="failed to determine remote host os")
-        uname = stdout.split("\n")[1]
-        if re.match(r"JUNIPER", uname):
-            junos = True
-            bsd_version = 6.0
-            sshd_version = self.which_sshd()
-        elif re.match(r"JNPR", uname):
-            junos = True
-            bsd_version = self.which_bsd()
-            sshd_version = self.which_sshd()
-        else:
-            sshd_version = self.which_sshd()
-        return junos, bsd_version, sshd_version
+        result, stdout = self.sshshell.run("uname -i | egrep 'JUNIPER|JNPR'")
+        return result
 
     def which_bsd(self):
         """determines the BSD version of JUNOS
@@ -412,11 +404,11 @@ class SplitCopyShared:
             # +1 user process if openssh version is >= 7.4
             pid_count = 0
             max_pids = 40
-            if sshd_version >= 7.4 and bsd_version == 6.0:
+            if sshd_version >= 7.4 and bsd_version == 6.3:
                 pid_count = 4
             elif sshd_version >= 7.4 and bsd_version >= 10.0:
                 pid_count = 3
-            elif bsd_version == 6.0:
+            elif bsd_version == 6.3:
                 pid_count = 3
             elif bsd_version >= 10.0:
                 pid_count = 2
