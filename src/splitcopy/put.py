@@ -61,7 +61,7 @@ class SplitCopyPut:
         self.remote_dir = ""
         self.remote_file = ""
         self.progress = Progress()
-        self.juniper_platform = False
+        self.use_shell = False
 
     def handlesigint(self, sigint, stack):
         """called when SigInt is received
@@ -90,10 +90,6 @@ class SplitCopyPut:
             "key_filename": self.ssh_key,
             "ssh_port": self.ssh_port,
         }
-        junos = False
-        evo = False
-        bsd_version = float()
-        sshd_version = float()
 
         # handle sigint gracefully on *nix
         signal.signal(signal.SIGINT, self.handlesigint)
@@ -103,7 +99,7 @@ class SplitCopyPut:
 
         # is this a juniper cli?
         if self.scs.juniper_cli_check():
-            self.juniper_platform = True
+            self.use_shell = True
             # in order to drop into shell from cli mode, a pty and interactive shell are required
             # request a channel
             self.sshshell.channel_open()
@@ -111,8 +107,11 @@ class SplitCopyPut:
             self.sshshell.invoke_shell()
             # remove the welcome message from the socket
             self.sshshell.stdout_read(timeout=30)
-            # determine the OS
-            junos, evo, bsd_version, sshd_version = self.scs.which_os()
+            # enter shell mode
+            self.sshshell.run("start shell", exitcode=False)
+
+        # determine the OS
+        junos, evo, bsd_version, sshd_version = self.scs.which_os()
 
         # verify which protocol to use
         self.copy_proto, self.passwd = self.scs.which_proto(self.copy_proto)
@@ -296,9 +295,9 @@ class SplitCopyPut:
         """
         logger.info("entering expand_remote_path()")
         if not self.remote_path or re.match(r"\.", self.remote_path):
-            result, stdout = self.sshshell.run("pwd")
+            result, stdout, stderr = self.sshshell.run("pwd")
             if result:
-                if self.juniper_platform:
+                if self.use_shell:
                     pwd = stdout.split("\n")[1].rstrip()
                 else:
                     pwd = stdout
@@ -316,9 +315,9 @@ class SplitCopyPut:
         """
         logger.info("entering path_startswith_tilda()")
         if re.match(r"~", self.remote_path):
-            result, stdout = self.sshshell.run(f"ls -d {self.remote_path}")
+            result, stdout, stderr = self.sshshell.run(f"ls -d {self.remote_path}")
             if result:
-                if self.juniper_platform:
+                if self.use_shell:
                     self.remote_path = stdout.split("\n")[1].rstrip()
                 else:
                     self.remote_path = stdout
@@ -332,7 +331,7 @@ class SplitCopyPut:
         :type bool:
         """
         logger.info("entering check_target_exists()")
-        result, stdout = self.sshshell.run(
+        result, stdout, stderr = self.sshshell.run(
             f"test -e {self.remote_dir}/{self.remote_file}"
         )
         return result
@@ -342,7 +341,7 @@ class SplitCopyPut:
         :return None:
         """
         logger.info("entering delete_target_remote()")
-        result, stdout = self.sshshell.run(
+        result, stdout, stderr = self.sshshell.run(
             f"rm -f {self.remote_dir}/{self.remote_file}"
         )
         if not result:
@@ -451,7 +450,7 @@ class SplitCopyPut:
                 transport = self.sshshell._transport
                 with scp_lib(transport) as scpclient:
                     scpclient.put("join.sh", f"{remote_tmpdir}/join.sh")
-            result, stdout = self.sshshell.run(
+            result, stdout, stderr = self.sshshell.run(
                 f"sh {remote_tmpdir}/join.sh", timeout=600
             )
         except Exception as err:
@@ -479,7 +478,7 @@ class SplitCopyPut:
         :return None:
         """
         logger.info("entering compare_file_sizes()")
-        result, stdout = self.sshshell.run(
+        result, stdout, stderr = self.sshshell.run(
             f"ls -l {self.remote_dir}/{self.remote_file}"
         )
         if not result:
@@ -491,7 +490,7 @@ class SplitCopyPut:
                 config_rollback=False,
                 hard_close=self.hard_close,
             )
-        if self.juniper_platform:
+        if self.use_shell:
             combined_file_size = int(stdout.split("\r\n")[1].split()[4])
         else:
             combined_file_size = int(stdout.split()[4])
@@ -525,7 +524,7 @@ class SplitCopyPut:
         else:
             cmd = f"{sha_bin}"
 
-        result, stdout = self.sshshell.run(
+        result, stdout, stderr = self.sshshell.run(
             f"{cmd} {self.remote_dir}/{self.remote_file}", timeout=300
         )
         if not result:

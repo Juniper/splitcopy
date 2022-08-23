@@ -482,11 +482,14 @@ class SSHShell:
         """
         result = False
         stdout = ""
+        stderr = ""
+        logger.debug(cmd)
         if self.use_shell:
             result, stdout = self.shell_cmd(cmd, timeout, exitcode)
         else:
-            result, stdout = self.exec_cmd(cmd, timeout)
-        return result, stdout
+            result, stdout, stderr = self.exec_cmd(cmd, timeout)
+        logger.debug(result)
+        return result, stdout, stderr
 
     def shell_cmd(self, cmd, timeout, exitcode):
         """sends a cmd to remote host over the existing channel and shell
@@ -541,18 +544,18 @@ class SSHShell:
         result = False
         exit_code = None
         bufsize = -1
-        logger.info("entering exec_cmd()")
+        stdout = ""
+        stderr = ""
         chan = self._transport.open_session(timeout=timeout)
-        chan.settimeout(timeout)
         chan.exec_command(cmd)
-        stdout = chan.makefile("r", bufsize)
-        stdout = "".join(stdout.readlines()).rstrip()
         while exit_code is None:
             if chan.exit_status_ready():
                 exit_code = chan.recv_exit_status()
+                stdout = chan.recv(bufsize)
+                stderr = chan.recv_stderr(bufsize)
             else:
                 time.sleep(0.1)
         if exit_code == 0:
             result = True
         chan.close()
-        return result, stdout
+        return result, stdout.decode(), stderr.decode()
