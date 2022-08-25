@@ -470,12 +470,16 @@ def test_main_put_ftp_sshport_notint(monkeypatch: MonkeyPatch):
     def gethostbyname(*args):
         return "192.168.64.7"
 
+    def isfile(*args):
+        return True
+
     monkeypatch.setattr("splitcopy.splitcopy.parse_args", parse_args)
     monkeypatch.setattr(
         "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
     )
     monkeypatch.setattr("socket.gethostbyname", gethostbyname)
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
+    monkeypatch.setattr("os.path.isfile", isfile)
     with raises(SystemExit):
         splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 
@@ -504,12 +508,16 @@ def test_main_put_ftp_split_timeout_notint(monkeypatch: MonkeyPatch):
     def gethostbyname(*args):
         return "192.168.64.7"
 
+    def isfile(*args):
+        return True
+
     monkeypatch.setattr("splitcopy.splitcopy.parse_args", parse_args)
     monkeypatch.setattr(
         "splitcopy.splitcopy.parse_source_arg_as_local", parse_source_arg_as_local
     )
     monkeypatch.setattr("socket.gethostbyname", gethostbyname)
     monkeypatch.setattr("splitcopy.splitcopy.parse_arg_as_remote", parse_arg_as_remote)
+    monkeypatch.setattr("os.path.isfile", isfile)
     with raises(SystemExit):
         splitcopy.main(MockSplitCopyGet, MockSplitCopyPut)
 

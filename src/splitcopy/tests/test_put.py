@@ -79,6 +79,18 @@ class MockSSHShell:
     def socket_open(self):
         self.socket = True
 
+    def channel_open(self):
+        pass
+
+    def invoke_shell(self):
+        pass
+
+    def stdout_read(self, **kwargs):
+        pass
+
+    def run(self, *args, **kwargs):
+        pass
+
     def transport_open(self):
         self._transport = True
 
@@ -123,6 +135,9 @@ class MockSCPClient:
 class MockSplitCopyShared:
     def __init__(self):
         pass
+
+    def juniper_cli_check(*args):
+        return True
 
     def close(self, **kwargs):
         raise SystemExit
@@ -472,10 +487,23 @@ class TestSplitCopyPut:
         with raises(SystemExit):
             scput.validate_remote_path_put()
 
-    def test_expand_remote_path(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_path_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(cmd):
-                stdout = "foo@bar ~ % pwd\n" "/homes/foo\n" "foo@bar ~ % \n"
+                stdout = "foo@bar ~ % pwd\n/homes/foo\nfoo@bar ~ % \n"
+                return (True, stdout)
+
+        scput = SplitCopyPut()
+        scput.use_shell = True
+        scput.sshshell = MockSSHShell2
+        scput.remote_path = "./tmp"
+        scput.expand_remote_path()
+        assert scput.remote_path == "/homes/foo/tmp"
+
+    def test_expand_remote_path_exec(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(cmd):
+                stdout = "/homes/foo"
                 return (True, stdout)
 
         scput = SplitCopyPut()
@@ -495,10 +523,23 @@ class TestSplitCopyPut:
         with raises(ValueError):
             scput.expand_remote_path()
 
-    def test_path_startswith_tilda(self, monkeypatch: MonkeyPatch):
+    def test_path_startswith_tilda_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(cmd):
-                stdout = "foo@bar ~ % ls -d ~/tmp\n" "/homes/foo/tmp\n" "foo@bar ~ % \n"
+                stdout = "foo@bar ~ % ls -d ~/tmp\n/homes/foo/tmp\nfoo@bar ~ % \n"
+                return (True, stdout)
+
+        scput = SplitCopyPut()
+        scput.use_shell = True
+        scput.sshshell = MockSSHShell2
+        scput.remote_path = "~/tmp"
+        scput.path_startswith_tilda()
+        assert scput.remote_path == "/homes/foo/tmp"
+
+    def test_path_startswith_tilda_exec(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(cmd):
+                stdout = "/homes/foo/tmp"
                 return (True, stdout)
 
         scput = SplitCopyPut()
@@ -736,7 +777,7 @@ class TestSplitCopyPut:
         with raises(SystemExit):
             scput.join_files_remote(MockSCPClient, chunks, "/tmp/foo")
 
-    def test_compare_file_sizes(self, monkeypatch: MonkeyPatch):
+    def test_compare_file_sizes_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd, timeout=30):
                 stdout = (
@@ -744,6 +785,18 @@ class TestSplitCopyPut:
                     b"-rw-r--r--  1 foo  bar  100000 19 Dec  2019 /var/tmp/foo\r\n"
                     b"foo@bar ~ % "
                 ).decode()
+                return True, stdout
+
+        scput = SplitCopyPut()
+        scput.use_shell = True
+        scput.sshshell = MockSSHShell2()
+        result = scput.compare_file_sizes(100000)
+        assert result == None
+
+    def test_compare_file_sizes_exec(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd, timeout=30):
+                stdout = "-rw-r--r--  1 foo  bar  100000 19 Dec  2019 /var/tmp/foo"
                 return True, stdout
 
         scput = SplitCopyPut()
@@ -773,6 +826,7 @@ class TestSplitCopyPut:
                 return True, stdout
 
         scput = SplitCopyPut()
+        scput.use_shell = True
         scput.sshshell = MockSSHShell2()
         scput.scs = MockSplitCopyShared()
         with raises(SystemExit):

@@ -1,4 +1,4 @@
-from socket import gaierror
+import socket
 
 from paramiko.ssh_exception import (
     AuthenticationException,
@@ -10,8 +10,30 @@ from pytest import MonkeyPatch, raises
 from splitcopy.paramikoshell import SSHShell
 
 
-def init_paramikoshell(**kwargs):
-    return SSHShell(**kwargs)
+class MockChannel:
+    def __init__(self):
+        self.stdout_hack = b""
+
+    def exec_command(self, *args):
+        pass
+
+    def exit_status_ready(self, *args):
+        return True
+
+    def recv_exit_status(*args):
+        return 0
+
+    def recv(self, *args):
+        if self.stdout_hack:
+            return b""
+        self.stdout_hack += b"somestring\n"
+        return self.stdout_hack
+
+    def set_combine_stderr(self, *args):
+        pass
+
+    def close(self, *args):
+        pass
 
 
 class TestParamikoShell:
@@ -39,7 +61,7 @@ class TestParamikoShell:
         def socket_direct():
             pass
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "socket_proxy", socket_proxy)
         monkeypatch.setattr(paramikoshell, "socket_direct", socket_direct)
         result = paramikoshell.socket_open()
@@ -74,7 +96,7 @@ class TestParamikoShell:
         def mockproxycommand(cmd):
             return True
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr("os.path.expanduser", expanduser)
         monkeypatch.setattr("os.path.isfile", isfile)
         monkeypatch.setattr("builtins.open", MockOpen)
@@ -87,16 +109,16 @@ class TestParamikoShell:
         def create_connection(host, timeout):
             return True
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr("socket.create_connection", create_connection)
         result = paramikoshell.socket_direct()
         assert result == True
 
     def test_socket_direct_resolution_fail(self, monkeypatch: MonkeyPatch):
         def create_connection(host, timeout):
-            raise gaierror
+            raise socket.gaierror
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr("socket.create_connection", create_connection)
         with raises(ConnectionError):
             paramikoshell.socket_direct()
@@ -105,7 +127,7 @@ class TestParamikoShell:
         def create_connection(host, timeout):
             raise ConnectionRefusedError
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr("socket.create_connection", create_connection)
         with raises(ConnectionError):
             paramikoshell.socket_direct()
@@ -114,7 +136,7 @@ class TestParamikoShell:
         def from_private_key_file(filename):
             raise AttributeError
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(
             "paramiko.Ed25519Key.from_private_key_file", from_private_key_file
         )
@@ -125,7 +147,7 @@ class TestParamikoShell:
         def from_private_key_file(filename):
             raise PasswordRequiredException
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(
             "paramiko.ECDSAKey.from_private_key_file", from_private_key_file
         )
@@ -136,7 +158,7 @@ class TestParamikoShell:
         def from_private_key_file(filename):
             return "dsa key"
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(
             "paramiko.DSSKey.from_private_key_file", from_private_key_file
         )
@@ -147,7 +169,7 @@ class TestParamikoShell:
         def from_private_key_file(filename):
             return "rsa key"
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(
             "paramiko.RSAKey.from_private_key_file", from_private_key_file
         )
@@ -163,7 +185,7 @@ class TestParamikoShell:
                 return True
 
         monkeypatch.setattr("paramiko.Transport", MockTransport)
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         paramikoshell.socket = True
         result = paramikoshell.transport_open()
         assert result == None
@@ -175,7 +197,7 @@ class TestParamikoShell:
         def is_authenticated():
             return True
 
-        paramikoshell = init_paramikoshell(auth_method="agent")
+        paramikoshell = SSHShell(auth_method="agent")
         monkeypatch.setattr(paramikoshell, "auth_using_agent", auth_using_agent)
         monkeypatch.setattr(paramikoshell, "is_authenticated", is_authenticated)
         result = paramikoshell.worker_thread_auth()
@@ -188,7 +210,7 @@ class TestParamikoShell:
         def is_authenticated():
             return True
 
-        paramikoshell = init_paramikoshell(auth_method="publickey")
+        paramikoshell = SSHShell(auth_method="publickey")
         monkeypatch.setattr(
             paramikoshell, "auth_using_provided_keyfile", auth_using_provided_keyfile
         )
@@ -203,7 +225,7 @@ class TestParamikoShell:
         def is_authenticated():
             return True
 
-        paramikoshell = init_paramikoshell(auth_method="keyboard-interactive")
+        paramikoshell = SSHShell(auth_method="keyboard-interactive")
         monkeypatch.setattr(paramikoshell, "auth_using_keyb", auth_using_keyb)
         monkeypatch.setattr(paramikoshell, "is_authenticated", is_authenticated)
         result = paramikoshell.worker_thread_auth()
@@ -216,7 +238,7 @@ class TestParamikoShell:
         def is_authenticated():
             return True
 
-        paramikoshell = init_paramikoshell(auth_method=None)
+        paramikoshell = SSHShell(auth_method=None)
         monkeypatch.setattr(paramikoshell, "password_auth", password_auth)
         monkeypatch.setattr(paramikoshell, "is_authenticated", is_authenticated)
         result = paramikoshell.worker_thread_auth()
@@ -227,7 +249,7 @@ class TestParamikoShell:
             def auth_none(username):
                 raise BadAuthenticationType("Bad authentication type", None)
 
-        paramikoshell = init_paramikoshell(username="foo")
+        paramikoshell = SSHShell(username="foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         with raises(SSHException):
             paramikoshell.main_thread_auth()
@@ -246,7 +268,7 @@ class TestParamikoShell:
         def auth_using_agent():
             return True
 
-        paramikoshell = init_paramikoshell(username="foo", key_filename=None)
+        paramikoshell = SSHShell(username="foo", key_filename=None)
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "auth_using_agent", auth_using_agent)
         monkeypatch.setattr(paramikoshell, "is_authenticated", is_authenticated)
@@ -270,7 +292,7 @@ class TestParamikoShell:
         def auth_using_keyfiles():
             return True
 
-        paramikoshell = init_paramikoshell(username="foo", key_filename=None)
+        paramikoshell = SSHShell(username="foo", key_filename=None)
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "auth_using_agent", auth_using_agent)
         monkeypatch.setattr(paramikoshell, "auth_using_keyfiles", auth_using_keyfiles)
@@ -292,7 +314,7 @@ class TestParamikoShell:
         def auth_using_provided_keyfile():
             return True
 
-        paramikoshell = init_paramikoshell(username="foo", key_filename="/var/tmp/foo")
+        paramikoshell = SSHShell(username="foo", key_filename="/var/tmp/foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(
             paramikoshell, "auth_using_provided_keyfile", auth_using_provided_keyfile
@@ -321,7 +343,7 @@ class TestParamikoShell:
         def auth_using_keyfiles():
             return False
 
-        paramikoshell = init_paramikoshell(username="foo", key_filename=None)
+        paramikoshell = SSHShell(username="foo", key_filename=None)
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "auth_using_keyb", auth_using_keyb)
         monkeypatch.setattr(paramikoshell, "is_authenticated", is_authenticated)
@@ -353,7 +375,7 @@ class TestParamikoShell:
         def password_auth():
             return True
 
-        paramikoshell = init_paramikoshell(username="foo", key_filename=None)
+        paramikoshell = SSHShell(username="foo", key_filename=None)
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "auth_using_keyb", auth_using_keyb)
         monkeypatch.setattr(paramikoshell, "is_authenticated", is_authenticated)
@@ -386,7 +408,7 @@ class TestParamikoShell:
         def password_auth():
             return False
 
-        paramikoshell = init_paramikoshell(username="foo", key_filename=None)
+        paramikoshell = SSHShell(username="foo", key_filename=None)
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "auth_using_keyb", auth_using_keyb)
         monkeypatch.setattr(paramikoshell, "is_authenticated", is_authenticated)
@@ -400,7 +422,7 @@ class TestParamikoShell:
         def getpass(prompt, stream):
             return "a_password"
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr("getpass.getpass", getpass)
         result = paramikoshell.ask_password()
         assert result == "a_password"
@@ -413,7 +435,7 @@ class TestParamikoShell:
             def auth_password(username, password):
                 raise AuthenticationException
 
-        paramikoshell = init_paramikoshell(password="", username="foo")
+        paramikoshell = SSHShell(password="", username="foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "ask_password", ask_password)
         result = paramikoshell.password_auth()
@@ -427,7 +449,7 @@ class TestParamikoShell:
             def auth_password(username, password):
                 return True
 
-        paramikoshell = init_paramikoshell(username="foo", password="")
+        paramikoshell = SSHShell(username="foo", password="")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "ask_password", ask_password)
         result = paramikoshell.password_auth()
@@ -441,7 +463,7 @@ class TestParamikoShell:
             def auth_interactive(username, handler):
                 handler(None, None, ["foo", "bar"])
 
-        paramikoshell = init_paramikoshell(password="", username="foo")
+        paramikoshell = SSHShell(password="", username="foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "ask_password", ask_password)
         result = paramikoshell.auth_using_keyb()
@@ -455,7 +477,7 @@ class TestParamikoShell:
             def auth_interactive(username, handler):
                 handler(None, None, [])
 
-        paramikoshell = init_paramikoshell(password="", username="foo")
+        paramikoshell = SSHShell(password="", username="foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "ask_password", ask_password)
         result = paramikoshell.auth_using_keyb()
@@ -469,7 +491,7 @@ class TestParamikoShell:
             def auth_interactive(username, handler):
                 handler(None, None, ["foo"])
 
-        paramikoshell = init_paramikoshell(password="", username="foo")
+        paramikoshell = SSHShell(password="", username="foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "ask_password", ask_password)
         result = paramikoshell.auth_using_keyb()
@@ -499,7 +521,7 @@ class TestParamikoShell:
 
         monkeypatch.setattr("paramiko.Agent", MockAgent)
         monkeypatch.setattr("paramiko.AgentKey", MockAgentKey)
-        paramikoshell = init_paramikoshell(username="foo")
+        paramikoshell = SSHShell(username="foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         result = paramikoshell.auth_using_agent()
         assert result == False
@@ -528,7 +550,7 @@ class TestParamikoShell:
 
         monkeypatch.setattr("paramiko.Agent", MockAgent)
         monkeypatch.setattr("paramiko.AgentKey", MockAgentKey)
-        paramikoshell = init_paramikoshell(username="foo")
+        paramikoshell = SSHShell(username="foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         result = paramikoshell.auth_using_agent()
         assert result == True
@@ -543,7 +565,7 @@ class TestParamikoShell:
         def key_auth_common(type, path):
             raise PasswordRequiredException
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr("os.path.isfile", isfile)
         monkeypatch.setattr("os.path.expanduser", expanduser)
         monkeypatch.setattr(paramikoshell, "key_auth_common", key_auth_common)
@@ -560,7 +582,7 @@ class TestParamikoShell:
         def key_auth_common(type, path):
             return True
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr("os.path.isfile", isfile)
         monkeypatch.setattr("os.path.expanduser", expanduser)
         monkeypatch.setattr(paramikoshell, "key_auth_common", key_auth_common)
@@ -571,7 +593,7 @@ class TestParamikoShell:
         def get_pkey_from_file(type, path):
             raise PasswordRequiredException
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "get_pkey_from_file", get_pkey_from_file)
         with raises(PasswordRequiredException):
             paramikoshell.key_auth_common("foo", "bar")
@@ -584,7 +606,7 @@ class TestParamikoShell:
             def auth_publickey(username, pkey):
                 raise SSHException
 
-        paramikoshell = init_paramikoshell(username="foo")
+        paramikoshell = SSHShell(username="foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "get_pkey_from_file", get_pkey_from_file)
         result = paramikoshell.key_auth_common("foo", "bar")
@@ -598,7 +620,7 @@ class TestParamikoShell:
             def auth_publickey(username, pkey):
                 return True
 
-        paramikoshell = init_paramikoshell(username="foo")
+        paramikoshell = SSHShell(username="foo")
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         monkeypatch.setattr(paramikoshell, "get_pkey_from_file", get_pkey_from_file)
         result = paramikoshell.key_auth_common("foo", "bar")
@@ -608,7 +630,7 @@ class TestParamikoShell:
         def key_auth_common(type, path):
             raise PasswordRequiredException
 
-        paramikoshell = init_paramikoshell(key_filename="/var/tmp/foo")
+        paramikoshell = SSHShell(key_filename="/var/tmp/foo")
         monkeypatch.setattr(paramikoshell, "key_auth_common", key_auth_common)
         result = paramikoshell.auth_using_provided_keyfile()
         assert result == False
@@ -617,7 +639,7 @@ class TestParamikoShell:
         def key_auth_common(type, path):
             return True
 
-        paramikoshell = init_paramikoshell(key_filename="/var/tmp/foo")
+        paramikoshell = SSHShell(key_filename="/var/tmp/foo")
         monkeypatch.setattr(paramikoshell, "key_auth_common", key_auth_common)
         result = paramikoshell.auth_using_provided_keyfile()
         assert result == True
@@ -627,7 +649,7 @@ class TestParamikoShell:
             def is_authenticated():
                 return False
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         result = paramikoshell.is_authenticated()
         assert result == False
@@ -637,7 +659,7 @@ class TestParamikoShell:
             def is_authenticated():
                 return True
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         result = paramikoshell.is_authenticated()
         assert result == True
@@ -651,7 +673,7 @@ class TestParamikoShell:
             def open_session():
                 return MockChannel()
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         result = paramikoshell.channel_open()
         assert result == None
@@ -667,7 +689,7 @@ class TestParamikoShell:
             def invoke_shell(self):
                 pass
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         paramikoshell._chan = MockChannel()
         result = paramikoshell.invoke_shell()
         assert result == None
@@ -684,7 +706,7 @@ class TestParamikoShell:
             return True, False, False
 
         monkeypatch.setattr("select.select", select)
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         paramikoshell._chan = MockChannel()
         with raises(TimeoutError):
             paramikoshell.stdout_read(timeout=0.1)
@@ -701,19 +723,19 @@ class TestParamikoShell:
             return True, False, False
 
         monkeypatch.setattr("select.select", select)
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         paramikoshell._chan = MockChannel()
         result = paramikoshell.stdout_read(timeout=10)
         assert result == "foo@bar# "
 
-    def test_set_keepalive(self, monkeypatch: MonkeyPatch):
+    def test_set_transport_keepalive(self, monkeypatch: MonkeyPatch):
         class MockTransport:
             def set_keepalive(timer):
                 pass
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
-        result = paramikoshell.set_keepalive()
+        result = paramikoshell.set_transport_keepalive()
         assert result == None
 
     def test_write(self, monkeypatch: MonkeyPatch):
@@ -724,7 +746,7 @@ class TestParamikoShell:
             def send(self, string):
                 pass
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         paramikoshell._chan = MockChannel()
         result = paramikoshell.write("foo")
         assert result == None
@@ -736,13 +758,13 @@ class TestParamikoShell:
         def close_transport():
             pass
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "close_channel", close_channel)
         monkeypatch.setattr(paramikoshell, "close_transport", close_transport)
         result = paramikoshell.close()
         assert result == None
 
-    def test_close_channel_fail(self, monkeypatch: MonkeyPatch):
+    def test_close_channel_fail_attr(self, monkeypatch: MonkeyPatch):
         class MockChannel:
             def __init__(self):
                 pass
@@ -750,7 +772,20 @@ class TestParamikoShell:
             def close(self):
                 raise AttributeError
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
+        paramikoshell._chan = MockChannel()
+        result = paramikoshell.close_channel()
+        assert result == None
+
+    def test_close_channel_fail_eof(self, monkeypatch: MonkeyPatch):
+        class MockChannel:
+            def __init__(self):
+                pass
+
+            def close(self):
+                raise EOFError
+
+        paramikoshell = SSHShell()
         paramikoshell._chan = MockChannel()
         result = paramikoshell.close_channel()
         assert result == None
@@ -763,7 +798,7 @@ class TestParamikoShell:
             def close(self):
                 pass
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         paramikoshell._chan = MockChannel()
         result = paramikoshell.close_channel()
         assert result == None
@@ -773,7 +808,7 @@ class TestParamikoShell:
             def close():
                 pass
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         result = paramikoshell.close_transport()
         assert result == None
@@ -783,12 +818,12 @@ class TestParamikoShell:
             def close():
                 raise AttributeError
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
         result = paramikoshell.close_transport()
         assert result == None
 
-    def test_restart_pty(self, monkeypatch: MonkeyPatch):
+    def test_restart_shell(self, monkeypatch: MonkeyPatch):
         class MockChannel:
             def __init__(self):
                 pass
@@ -802,39 +837,111 @@ class TestParamikoShell:
         def invoke_shell():
             pass
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         paramikoshell._chan = MockChannel()
         monkeypatch.setattr(paramikoshell, "channel_open", channel_open)
         monkeypatch.setattr(paramikoshell, "invoke_shell", invoke_shell)
-        result = paramikoshell.restart_pty()
+        result = paramikoshell.restart_shell()
         assert result == None
 
-    def test_run_timeout(self, monkeypatch: MonkeyPatch):
+    def test_run_shell(self, monkeypatch: MonkeyPatch):
+        def shell_cmd(*args):
+            return (True, "somestring")
+
+        paramikoshell = SSHShell()
+        paramikoshell.use_shell = True
+        monkeypatch.setattr(paramikoshell, "shell_cmd", shell_cmd)
+        result = paramikoshell.run("cmd")
+        assert result == (True, "somestring")
+
+    def test_run_exec(self, monkeypatch: MonkeyPatch):
+        def exec_cmd(*args):
+            return (True, "somestring")
+
+        paramikoshell = SSHShell()
+        monkeypatch.setattr(paramikoshell, "exec_cmd", exec_cmd)
+        result = paramikoshell.run("cmd")
+        assert result == (True, "somestring")
+
+    def test_shell_cmd_timeout(self, monkeypatch: MonkeyPatch):
         def write(string):
             pass
 
         def stdout_read(timeout):
             raise TimeoutError
 
-        def restart_pty():
+        def restart_shell():
             pass
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "write", write)
         monkeypatch.setattr(paramikoshell, "stdout_read", stdout_read)
-        monkeypatch.setattr(paramikoshell, "restart_pty", restart_pty)
-        result = paramikoshell.run("cmd")
+        monkeypatch.setattr(paramikoshell, "restart_shell", restart_shell)
+        result = paramikoshell.shell_cmd("cmd", 30, True)
         assert result == (False, "timeout running 'cmd'")
 
-    def test_run(self, monkeypatch: MonkeyPatch):
+    def test_shell_cmd(self, monkeypatch: MonkeyPatch):
         def write(string):
             pass
 
         def stdout_read(timeout):
-            return b"echo $?\r\n\x1b[?2004l\r0\r\n\x1b[?2004hfoo@ubuntu:~$ ".decode()
+            stdout = b"echo $?\r\r\n0\r\n% ".decode()
+            return stdout
 
-        paramikoshell = init_paramikoshell()
+        paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "write", write)
         monkeypatch.setattr(paramikoshell, "stdout_read", stdout_read)
-        result = paramikoshell.run("cmd")
-        assert result == (True, "echo $?\r\n0\r\nfoo@ubuntu:~$ ")
+        result = paramikoshell.shell_cmd("test -e filename", 30, True)
+        assert result == (True, "echo $?\r\r\n0\r\n% ")
+
+    def test_exec_cmd(self, monkeypatch: MonkeyPatch):
+        class MockTransport:
+            def open_session(**kwargs):
+                return MockChannel()
+
+        paramikoshell = SSHShell()
+        monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
+        result = paramikoshell.exec_cmd("foo", timeout=30, combine=True)
+        assert result == (True, "somestring")
+
+    def test_exec_cmd_fail(self, monkeypatch: MonkeyPatch):
+        class MockChannel2(MockChannel):
+            def recv_exit_status(*args):
+                return 1
+
+        class MockTransport:
+            def open_session(**kwargs):
+                return MockChannel2()
+
+        paramikoshell = SSHShell()
+        monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
+        result = paramikoshell.exec_cmd("foo", timeout=30, combine=True)
+        assert result == (False, "somestring")
+
+    def test_exec_cmd_err_ssh(self, monkeypatch: MonkeyPatch):
+        class MockChannel2(MockChannel):
+            def exec_command(*args):
+                raise SSHException
+
+        class MockTransport:
+            def open_session(**kwargs):
+                return MockChannel2()
+
+        paramikoshell = SSHShell()
+        monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
+        result = paramikoshell.exec_cmd("foo", timeout=30, combine=True)
+        assert result == (False, "ssh exception '' raised while running 'foo'")
+
+    def test_exec_cmd_err_socket(self, monkeypatch: MonkeyPatch):
+        class MockChannel2(MockChannel):
+            def recv(*args):
+                raise socket.timeout
+
+        class MockTransport:
+            def open_session(**kwargs):
+                return MockChannel2()
+
+        paramikoshell = SSHShell()
+        monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
+        result = paramikoshell.exec_cmd("foo", timeout=30, combine=True)
+        assert result == (False, "socket timeout raised while running 'foo'")

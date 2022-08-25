@@ -76,6 +76,18 @@ class MockSSHShell:
     def socket_open(self):
         self.socket = True
 
+    def channel_open(self):
+        pass
+
+    def invoke_shell(self):
+        pass
+
+    def stdout_read(self, **kwargs):
+        pass
+
+    def run(self, *args, **kwargs):
+        pass
+
     def transport_open(self):
         self._transport = True
 
@@ -117,6 +129,9 @@ class MockSCPClient:
 class MockSplitCopyShared:
     def __init__(self):
         pass
+
+    def juniper_cli_check(*args):
+        return True
 
     def close(self, **kwargs):
         raise SystemExit
@@ -587,11 +602,30 @@ class TestSplitCopyGet:
         with raises(ValueError):
             scget.expand_remote_dir()
 
-    def test_expand_remote_dir_none(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_dir_none_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
-                stdout = "foo@bar:~$ pwd\n" "/homes/foo/bar\n" "foo@bar:~$"
+                stdout = "foo@bar:~$ pwd\n/homes/foo/bar\nfoo@bar:~$"
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.use_shell = True
+        scget.sshshell = MockSSHShell2()
+        scget.remote_path = "testfile"
+        scget.remote_dir = os.path.dirname(scget.remote_path)
+        scget.remote_file = os.path.basename(scget.remote_path)
+        scget.expand_remote_dir()
+        assert (
+            scget.remote_dir == "/homes/foo/bar"
+            and scget.remote_path == "/homes/foo/bar/testfile"
+        )
+
+    def test_expand_remote_dir_none_exec(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "/homes/foo/bar"
                 return result, stdout
 
         scget = SplitCopyGet()
@@ -605,11 +639,30 @@ class TestSplitCopyGet:
             and scget.remote_path == "/homes/foo/bar/testfile"
         )
 
-    def test_expand_remote_dir(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_dir_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
-                stdout = "foo@bar:~$ pwd\n" "/homes/foo/bar\n" "foo@bar:~$"
+                stdout = "foo@bar:~$ pwd\n/homes/foo/bar\nfoo@bar:~$"
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.use_shell = True
+        scget.sshshell = MockSSHShell2()
+        scget.remote_path = "./testfile"
+        scget.remote_dir = os.path.dirname(scget.remote_path)
+        scget.remote_file = os.path.basename(scget.remote_path)
+        scget.expand_remote_dir()
+        assert (
+            scget.remote_dir == "/homes/foo/bar"
+            and scget.remote_path == "/homes/foo/bar/testfile"
+        )
+
+    def test_expand_remote_dir_exec(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "/homes/foo/bar"
                 return result, stdout
 
         scget = SplitCopyGet()
@@ -623,11 +676,30 @@ class TestSplitCopyGet:
             and scget.remote_path == "/homes/foo/bar/testfile"
         )
 
-    def test_expand_remote_dir2(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_dir2_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
-                stdout = "foo@bar:~$ pwd\n" "/homes/foo/bar\n" "foo@bar:~$"
+                stdout = "foo@bar:~$ pwd\n/homes/foo/bar\nfoo@bar:~$"
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.use_shell = True
+        scget.sshshell = MockSSHShell2()
+        scget.remote_path = "./tmp/testfile"
+        scget.remote_dir = os.path.dirname(scget.remote_path)
+        scget.remote_file = os.path.basename(scget.remote_path)
+        scget.expand_remote_dir()
+        assert (
+            scget.remote_dir == "/homes/foo/bar/tmp"
+            and scget.remote_path == "/homes/foo/bar/tmp/testfile"
+        )
+
+    def test_expand_remote_dir2_exec(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "/homes/foo/bar"
                 return result, stdout
 
         scget = SplitCopyGet()
@@ -654,11 +726,29 @@ class TestSplitCopyGet:
         with raises(ValueError):
             scget.path_startswith_tilda()
 
-    def test_path_startswith_tilda(self):
+    def test_path_startswith_tilda_shell(self):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
-                stdout = "foo@bar:~$ ls -d ~/bar\n" "/homes/foo/bar\n" "foo@bar:~$"
+                stdout = "foo@bar:~$ ls -d ~/bar\n/homes/foo/bar\nfoo@bar:~$"
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.use_shell = True
+        scget.sshshell = MockSSHShell2()
+        scget.remote_dir = "~foo/bar"
+        scget.remote_file = "test"
+        scget.path_startswith_tilda()
+        assert (
+            scget.remote_dir == "/homes/foo/bar"
+            and scget.remote_path == "/homes/foo/bar/test"
+        )
+
+    def test_path_startswith_tilda_exec(self):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "/homes/foo/bar"
                 return result, stdout
 
         scget = SplitCopyGet()
@@ -713,7 +803,7 @@ class TestSplitCopyGet:
         with raises(ValueError):
             scget.verify_file_is_readable()
 
-    def test_check_if_symlink(self):
+    def test_check_if_symlink_shell(self):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -725,12 +815,26 @@ class TestSplitCopyGet:
                 return result, stdout
 
         scget = SplitCopyGet()
+        scget.use_shell = True
         scget.sshshell = MockSSHShell2()
         scget.remote_path = "/tmp/foo"
         scget.check_if_symlink()
         assert scget.filesize_path == "/var/tmp/foo"
 
-    def test_check_if_symlink_samedir(self):
+    def test_check_if_symlink_exec(self):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "lrwxrwxrwx 1 foo bar 43 Jun 22 05:48 /tmp/foo -> /var/tmp/foo"
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        scget.remote_path = "/tmp/foo"
+        scget.check_if_symlink()
+        assert scget.filesize_path == "/var/tmp/foo"
+
+    def test_check_if_symlink_samedir_shell(self):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -739,6 +843,21 @@ class TestSplitCopyGet:
                     "lrwxrwxrwx 1 foo bar 43 Jun 22 05:48 /tmp/foo -> bar\n"
                     "foo@bar:~$"
                 )
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.use_shell = True
+        scget.sshshell = MockSSHShell2()
+        scget.remote_dir = "/tmp"
+        scget.remote_path = "/tmp/foo"
+        scget.check_if_symlink()
+        assert scget.filesize_path == "/tmp/bar"
+
+    def test_check_if_symlink_samedir_exec(self):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "lrwxrwxrwx 1 foo bar 43 Jun 22 05:48 /tmp/foo -> bar"
                 return result, stdout
 
         scget = SplitCopyGet()
@@ -780,7 +899,7 @@ class TestSplitCopyGet:
         expected = None
         assert expected == result
 
-    def test_remote_filesize(self):
+    def test_remote_filesize_shell(self):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -789,6 +908,19 @@ class TestSplitCopyGet:
                     "-rw------- 1 foo bar 69927631 Mar 29 06:49 /var/tmp/foo\n"
                     "foo@bar:~$"
                 )
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.use_shell = True
+        scget.sshshell = MockSSHShell2()
+        result = scget.remote_filesize()
+        assert result == 69927631
+
+    def test_remote_filesize_exec(self):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "-rw------- 1 foo bar 69927631 Mar 29 06:49 /var/tmp/foo"
                 return result, stdout
 
         scget = SplitCopyGet()
@@ -904,7 +1036,7 @@ class TestSplitCopyGet:
         result = scget.find_existing_sha_files()
         assert result == (True, "ls output")
 
-    def test_process_existing_sha_files(self):
+    def test_process_existing_sha_files_shell(self):
         output = (
             "/var/tmp/foo.sha1\n"
             "/var/tmp/foo.sha224\n"
@@ -921,6 +1053,33 @@ class TestSplitCopyGet:
                     "9771ff758f7b66a7933783b8f2e541ed69031daa0cf233acc9eb42f34f885a13 filename\n"
                     "foo@bar:~$ "
                 )
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.use_shell = True
+        scget.sshshell = MockSSHShell2()
+        result = scget.process_existing_sha_files(output)
+        assert result == {
+            1: "9771ff758f7b66a7933783b8f2e541ed69031daa0cf233acc9eb42f34f885a13",
+            224: "9771ff758f7b66a7933783b8f2e541ed69031daa0cf233acc9eb42f34f885a13",
+            256: "9771ff758f7b66a7933783b8f2e541ed69031daa0cf233acc9eb42f34f885a13",
+            384: "9771ff758f7b66a7933783b8f2e541ed69031daa0cf233acc9eb42f34f885a13",
+            512: "9771ff758f7b66a7933783b8f2e541ed69031daa0cf233acc9eb42f34f885a13",
+        }
+
+    def test_process_existing_sha_files_exec(self):
+        output = (
+            "/var/tmp/foo.sha1\n"
+            "/var/tmp/foo.sha224\n"
+            "/var/tmp/foo.sha256\n"
+            "/var/tmp/foo.sha384\n"
+            "/var/tmp/foo.sha512\n"
+        )
+
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "9771ff758f7b66a7933783b8f2e541ed69031daa0cf233acc9eb42f34f885a13 filename"
                 return result, stdout
 
         scget = SplitCopyGet()
