@@ -243,7 +243,7 @@ class SplitCopyGet:
         :type list:
         """
         logger.info("entering get_chunk_info()")
-        result, stdout, stderr = self.sshshell.run(f"ls -l {remote_tmpdir}/")
+        result, stdout = self.sshshell.run(f"ls -l {remote_tmpdir}/")
         if not result:
             self.scs.close(
                 err_str="couldn't get list of files from host",
@@ -332,7 +332,7 @@ class SplitCopyGet:
         """
         logger.info("entering expand_remote_dir()")
         if not self.remote_dir or re.match(r"\.", self.remote_dir):
-            result, stdout, stderr = self.sshshell.run("pwd")
+            result, stdout = self.sshshell.run("pwd")
             if result:
                 if self.use_shell:
                     pwd = stdout.split("\n")[1].rstrip()
@@ -353,7 +353,7 @@ class SplitCopyGet:
         """
         logger.info("entering path_startswith_tilda()")
         if re.match(r"~", self.remote_dir):
-            result, stdout, stderr = self.sshshell.run(f"ls -d {self.remote_dir}")
+            result, stdout = self.sshshell.run(f"ls -d {self.remote_dir}")
             if result:
                 if self.use_shell:
                     self.remote_dir = stdout.split("\n")[1].rstrip()
@@ -372,7 +372,7 @@ class SplitCopyGet:
         :raises ValueError: if path is a directory
         """
         logger.info("entering verify_path_is_not_directory()")
-        result, stdout, stderr = self.sshshell.run(f"test -d {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -d {self.remote_path}")
         if result:
             raise ValueError("src path is a directory, not a file")
 
@@ -382,7 +382,7 @@ class SplitCopyGet:
         :raises ValueError: if test fails
         """
         logger.info("entering verify_file_exists()")
-        result, stdout, stderr = self.sshshell.run(f"test -e {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -e {self.remote_path}")
         if not result:
             raise ValueError("file on remote host doesn't exist")
 
@@ -392,7 +392,7 @@ class SplitCopyGet:
         :raises ValueError: if test fails
         """
         logger.info("entering verify_file_is_readable()")
-        result, stdout, stderr = self.sshshell.run(f"test -r {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -r {self.remote_path}")
         if not result:
             raise ValueError("file on remote host is not readable")
 
@@ -403,10 +403,10 @@ class SplitCopyGet:
         :raises ValueError: if test fails
         """
         logger.info("entering check_if_symlink()")
-        result, stdout, stderr = self.sshshell.run(f"test -L {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -L {self.remote_path}")
         if result:
             logger.info("file is a symlink")
-            result, stdout, stderr = self.sshshell.run(f"ls -l {self.remote_path}")
+            result, stdout = self.sshshell.run(f"ls -l {self.remote_path}")
             if result:
                 if self.use_shell:
                     linked_path = stdout.split()[-2].rstrip()
@@ -442,7 +442,7 @@ class SplitCopyGet:
         :type int:
         """
         logger.info("entering remote_filesize()")
-        result, stdout, stderr = self.sshshell.run(f"ls -l {self.filesize_path}")
+        result, stdout = self.sshshell.run(f"ls -l {self.filesize_path}")
         if result:
             if self.use_shell:
                 file_size = int(stdout.split("\n")[1].split()[4])
@@ -467,7 +467,7 @@ class SplitCopyGet:
         """
         logger.info("entering remote_sha_get()")
         sha_hash = {}
-        result, stdout, stderr = self.find_existing_sha_files()
+        result, stdout = self.find_existing_sha_files()
         if result:
             sha_hash = self.process_existing_sha_files(stdout)
         if not sha_hash:
@@ -475,11 +475,11 @@ class SplitCopyGet:
             sha_bin, sha_len = self.scs.req_sha_binaries(sha_hash)
             print("generating remote sha hash...")
             if sha_bin == "shasum":
-                result, stdout, stderr = self.sshshell.run(
+                result, stdout = self.sshshell.run(
                     f"{sha_bin} -a {sha_len} {self.remote_path}", timeout=120
                 )
             else:
-                result, stdout, stderr = self.sshshell.run(
+                result, stdout = self.sshshell.run(
                     f"{sha_bin} {self.remote_path}", timeout=120
                 )
             if not result:
@@ -510,7 +510,7 @@ class SplitCopyGet:
         :type string:
         """
         logger.info("entering find_existing_sha_files()")
-        result, stdout, stderr = self.sshshell.run(f"ls -1 {self.remote_path}.sha*")
+        result, stdout = self.sshshell.run(f"ls -1 {self.remote_path}.sha*")
         return result, stdout
 
     def process_existing_sha_files(self, output):
@@ -530,7 +530,7 @@ class SplitCopyGet:
             except AttributeError:
                 continue
             logger.info(f"{line} file found")
-            result, stdout, stderr = self.sshshell.run(f"cat {line}")
+            result, stdout = self.sshshell.run(f"cat {line}")
             if result:
                 if self.use_shell:
                     sha_hash[sha_num] = stdout.split("\n")[1].split()[0].rstrip()
@@ -577,7 +577,7 @@ class SplitCopyGet:
             with scp_lib(transport) as scpclient:
                 scpclient.put("split.sh", f"{remote_tmpdir}/split.sh")
         print("splitting remote file...")
-        result, stdout, stderr = self.sshshell.run(
+        result, stdout = self.sshshell.run(
             f"sh {remote_tmpdir}/split.sh",
             timeout=self.split_timeout,
         )

@@ -295,7 +295,7 @@ class SplitCopyPut:
         """
         logger.info("entering expand_remote_path()")
         if not self.remote_path or re.match(r"\.", self.remote_path):
-            result, stdout, stderr = self.sshshell.run("pwd")
+            result, stdout = self.sshshell.run("pwd")
             if result:
                 if self.use_shell:
                     pwd = stdout.split("\n")[1].rstrip()
@@ -315,7 +315,7 @@ class SplitCopyPut:
         """
         logger.info("entering path_startswith_tilda()")
         if re.match(r"~", self.remote_path):
-            result, stdout, stderr = self.sshshell.run(f"ls -d {self.remote_path}")
+            result, stdout = self.sshshell.run(f"ls -d {self.remote_path}")
             if result:
                 if self.use_shell:
                     self.remote_path = stdout.split("\n")[1].rstrip()
@@ -331,7 +331,7 @@ class SplitCopyPut:
         :type bool:
         """
         logger.info("entering check_target_exists()")
-        result, stdout, stderr = self.sshshell.run(
+        result, stdout = self.sshshell.run(
             f"test -e {self.remote_dir}/{self.remote_file}"
         )
         return result
@@ -341,7 +341,7 @@ class SplitCopyPut:
         :return None:
         """
         logger.info("entering delete_target_remote()")
-        result, stdout, stderr = self.sshshell.run(
+        result, stdout = self.sshshell.run(
             f"rm -f {self.remote_dir}/{self.remote_file}"
         )
         if not result:
@@ -450,7 +450,7 @@ class SplitCopyPut:
                 transport = self.sshshell._transport
                 with scp_lib(transport) as scpclient:
                     scpclient.put("join.sh", f"{remote_tmpdir}/join.sh")
-            result, stdout, stderr = self.sshshell.run(
+            result, stdout = self.sshshell.run(
                 f"sh {remote_tmpdir}/join.sh", timeout=600
             )
         except Exception as err:
@@ -478,7 +478,7 @@ class SplitCopyPut:
         :return None:
         """
         logger.info("entering compare_file_sizes()")
-        result, stdout, stderr = self.sshshell.run(
+        result, stdout = self.sshshell.run(
             f"ls -l {self.remote_dir}/{self.remote_file}"
         )
         if not result:
@@ -524,7 +524,7 @@ class SplitCopyPut:
         else:
             cmd = f"{sha_bin}"
 
-        result, stdout, stderr = self.sshshell.run(
+        result, stdout = self.sshshell.run(
             f"{cmd} {self.remote_dir}/{self.remote_file}", timeout=300
         )
         if not result:

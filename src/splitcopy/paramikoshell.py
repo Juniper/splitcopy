@@ -15,7 +15,6 @@ import re
 import select
 import socket
 import sys
-import time
 import traceback
 import warnings
 
@@ -465,7 +464,7 @@ class SSHShell:
         self.channel_open()
         self.invoke_shell()
 
-    def run(self, cmd, timeout=30, exitcode=True):
+    def run(self, cmd, timeout=30, exitcode=True, combine=False):
         """wrapper around functions that send a cmd to a remote host.
         which function gets called depends on whether an interactive shell is in use.
         if exitcode is True will check its exit status
@@ -482,14 +481,13 @@ class SSHShell:
         """
         result = False
         stdout = ""
-        stderr = ""
         logger.debug(cmd)
         if self.use_shell:
             result, stdout = self.shell_cmd(cmd, timeout, exitcode)
         else:
-            result, stdout, stderr = self.exec_cmd(cmd, timeout)
+            result, stdout = self.exec_cmd(cmd, timeout, combine)
         logger.debug(result)
-        return result, stdout, stderr
+        return result, stdout
 
     def shell_cmd(self, cmd, timeout, exitcode):
         """sends a cmd to remote host over the existing channel and shell
@@ -523,7 +521,7 @@ class SSHShell:
             self.restart_shell()
         return result, stdout
 
-    def exec_cmd(self, cmd, timeout):
+    def exec_cmd(self, cmd, timeout, combine):
         """execute a command on the remote host.
         a new channel is opened prior to the command being executed.
         the channel is closed once the cmds exit status has been received
@@ -531,31 +529,35 @@ class SSHShell:
         :type string:
         :param timeout: amount of time before timeout is raised
         :type float:
-        :param exitcode: toggles whether to check for exit status or not
+        :param combine: whether stderr should be combined into stdout
         :type bool:
         :return result: whether successful or not
         :type bool:
         :return stdout: the output of the command
         :type string:
-        :param str command: the command to execute
-        :raises: SSHException if the server fails to execute the command
-
         """
         result = False
         exit_code = None
-        bufsize = -1
         stdout = ""
-        stderr = ""
-        chan = self._transport.open_session(timeout=timeout)
-        chan.exec_command(cmd)
-        while exit_code is None:
-            if chan.exit_status_ready():
-                exit_code = chan.recv_exit_status()
-                stdout = chan.recv(bufsize)
-                stderr = chan.recv_stderr(bufsize)
-            else:
-                time.sleep(0.1)
+        stdout_bytes = []
+        try:
+            chan = self._transport.open_session(timeout=timeout)
+            chan.exec_command(cmd)
+            if combine:
+                chan.set_combine_stderr(True)
+            out_bytes = chan.recv(_RECVSZ)
+            while out_bytes:
+                stdout_bytes.append(out_bytes)
+                out_bytes = chan.recv(_RECVSZ)
+            stdout = b"".join(stdout_bytes).rstrip().decode()
+            while exit_code is None:
+                if chan.exit_status_ready():
+                    exit_code = chan.recv_exit_status()
+            chan.close()
+        except SSHException as err:
+            stdout = f"ssh exception '{err}' raised while running '{cmd}'"
+        except socket.timeout:
+            stdout = f"socket timeout raised while running '{cmd}'"
         if exit_code == 0:
             result = True
-        chan.close()
-        return result, stdout.decode(), stderr.decode()
+        return result, stdout

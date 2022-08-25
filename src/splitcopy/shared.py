@@ -177,7 +177,7 @@ class SplitCopyShared:
         :returns bool:
         """
         logger.info("entering juniper_cli_check()")
-        result, stdout, stderr = self.sshshell.run("uname")
+        result, stdout = self.sshshell.run("uname")
         if result and stdout == "\nerror: unknown command: uname":
             # this is junos or evo CLI. exit code is always 0.
             self.use_shell = True
@@ -205,7 +205,7 @@ class SplitCopyShared:
         evo = False
         bsd_version = float()
         sshd_version = float()
-        result, stdout, stderr = self.sshshell.run("uname")
+        result, stdout = self.sshshell.run("uname")
         if not result:
             err = "cmd 'uname' failed on remote host, it must be *nix based"
             self.close(err_str=err)
@@ -237,7 +237,7 @@ class SplitCopyShared:
         :type bool:
         """
         logger.info("entering evo_os()")
-        result, stdout, stderr = self.sshshell.run("test -e /usr/sbin/evo-pfemand")
+        result, stdout = self.sshshell.run("test -e /usr/sbin/evo-pfemand")
         return result
 
     def junos_os(self):
@@ -246,7 +246,7 @@ class SplitCopyShared:
         :type bool:
         """
         logger.info("entering junos_os()")
-        result, stdout, stderr = self.sshshell.run("uname -i | egrep 'JUNIPER|JNPR'")
+        result, stdout = self.sshshell.run("uname -i | egrep 'JUNIPER|JNPR'")
         return result
 
     def which_bsd(self):
@@ -255,7 +255,7 @@ class SplitCopyShared:
         :type float:
         """
         logger.info("entering which_bsd()")
-        result, stdout, stderr = self.sshshell.run("uname -r")
+        result, stdout = self.sshshell.run("uname -r")
         if not result:
             self.close(err_str="failed to determine remote bsd version")
         if self.use_shell:
@@ -271,15 +271,15 @@ class SplitCopyShared:
         :type float
         """
         logger.info("entering which_sshd()")
-        result, stdout, stderr = self.sshshell.run("sshd -v", exitcode=False)
+        result, stdout = self.sshshell.run("sshd -v", exitcode=False, combine=True)
         if self.use_shell:
             if not re.search(r"OpenSSH_", stdout):
                 self.close(err_str="failed to determine remote openssh version")
             output = stdout.split("\n")[2]
         else:
-            if not re.search(r"OpenSSH_", stderr):
+            if not re.search(r"OpenSSH_", stdout):
                 self.close(err_str="failed to determine remote openssh version")
-            output = stderr.split("\n")[1]
+            output = stdout.split("\n")[1]
         version = re.sub(r"OpenSSH_", "", output)
         sshd_version = float(version[0:3])
         return sshd_version
@@ -300,7 +300,7 @@ class SplitCopyShared:
                 req_bins = "dd ls df rm"
             else:
                 req_bins = "cat ls df rm"
-            result, stdout, stderr = self.sshshell.run(f"which {req_bins}")
+            result, stdout = self.sshshell.run(f"which {req_bins}")
             if not result:
                 self.close(
                     err_str=(
@@ -341,7 +341,7 @@ class SplitCopyShared:
         logger.info(sha_bins)
 
         for req_bin in sha_bins:
-            result, stdout, stderr = self.sshshell.run(f"which {req_bin[0]}")
+            result, stdout = self.sshshell.run(f"which {req_bin[0]}")
             if result:
                 sha_bin = req_bin[0]
                 sha_len = req_bin[1]
@@ -468,7 +468,7 @@ class SplitCopyShared:
             remote_tmpdir = (
                 f"{self.remote_dir}/splitcopy_{self.remote_file}.{time_stamp}"
             )
-        result, stdout, stderr = self.sshshell.run(f"mkdir -p {remote_tmpdir}")
+        result, stdout = self.sshshell.run(f"mkdir -p {remote_tmpdir}")
         if not result:
             err = (
                 "unable to create the tmp directory on remote host."
@@ -489,7 +489,7 @@ class SplitCopyShared:
         logger.info("entering storage_check_remote()")
         avail_blocks = 0
         print("checking remote storage...")
-        result, stdout, stderr = self.sshshell.run(f"df -k {self.remote_dir}")
+        result, stdout = self.sshshell.run(f"df -k {self.remote_dir}")
         if not result:
             self.close(err_str="failed to determine remote disk space available")
         try:
@@ -601,7 +601,7 @@ class SplitCopyShared:
         logger.info("entering find_configured_limits()")
         cli_config = ""
         for stanza in config_stanzas:
-            result, stdout, stderr = self.sshshell.run(
+            result, stdout = self.sshshell.run(
                 f'cli -c "show configuration {stanza} | display set | no-more"'
             )
             cli_config += stdout
@@ -643,7 +643,7 @@ class SplitCopyShared:
         if self.command_list:
             print("rate-limit/connection-limit/login retry-options configuration found")
             logger.info(self.command_list)
-            result, stdout, stderr = self.sshshell.run(
+            result, stdout = self.sshshell.run(
                 f'cli -c "edit;{"".join(self.command_list)}commit and-quit"',
                 exitcode=False,
                 timeout=60,
@@ -671,7 +671,7 @@ class SplitCopyShared:
         logger.info("entering limits_rollback()")
         rollback_cmds = "".join(self.command_list)
         rollback_cmds = re.sub("deactivate", "activate", rollback_cmds)
-        result, stdout, stderr = self.sshshell.run(
+        result, stdout = self.sshshell.run(
             f'cli -c "edit;{rollback_cmds}commit and-quit"',
             exitcode=False,
             timeout=60,
@@ -714,7 +714,7 @@ class SplitCopyShared:
                     f"rm -rf {self.remote_dir}/splitcopy_{self.remote_file}.*"
                 )
         else:
-            result, stdout, stderr = self.sshshell.run(f"rm -rf {self.remote_tmpdir}")
+            result, stdout = self.sshshell.run(f"rm -rf {self.remote_tmpdir}")
             if not result and not silent:
                 print(
                     f"unable to delete the tmp directory {self.remote_tmpdir} on remote host, "
