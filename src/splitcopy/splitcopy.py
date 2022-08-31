@@ -59,6 +59,11 @@ def parse_args():
         nargs=1,
         help="ssh port number to connect to",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="if target file already exists, delete it prior to transfer",
+    )
     parser.add_argument("--nocurses", action="store_true", help="disable curses output")
     parser.add_argument("--log", nargs=1, help="log level, eg DEBUG")
     args = parser.parse_args()
@@ -133,6 +138,7 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
     source = args.source
     target = args.target
     use_curses = True
+    overwrite = args.overwrite
     if args.nocurses:
         use_curses = False
 
@@ -214,6 +220,7 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
         "split_timeout": split_timeout,
         "use_curses": use_curses,
         "target": target,
+        "overwrite": overwrite,
     }
     logger.info(kwargs)
 

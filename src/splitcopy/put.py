@@ -54,6 +54,7 @@ class SplitCopyPut:
         self.copy_proto = kwargs.get("copy_proto")
         self.noverify = kwargs.get("noverify")
         self.use_curses = kwargs.get("use_curses")
+        self.overwrite = kwargs.get("overwrite")
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
         self.hard_close = False
@@ -110,18 +111,17 @@ class SplitCopyPut:
             # enter shell mode
             self.sshshell.run("start shell", exitcode=False)
 
+        # ensure dest path is valid
+        self.validate_remote_path_put()
+
+        # if target file exists, delete it?
+        self.delete_target_remote()
+
         # determine the OS
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
 
         # verify which protocol to use
         self.copy_proto, self.passwd = self.scs.which_proto(self.copy_proto)
-
-        # ensure dest path is valid
-        self.validate_remote_path_put()
-
-        # delete target file if it already exists
-        if self.check_target_exists():
-            self.delete_target_remote()
 
         # check required binaries exist on remote host
         self.scs.req_binaries(junos=junos, evo=evo)
@@ -337,16 +337,23 @@ class SplitCopyPut:
         return result
 
     def delete_target_remote(self):
-        """attempts to delete the target file
+        """verifies whether path is a file.
+        if true and --overwrite flag is specified attempt to delete it
+        else alert the user and exit
         :return None:
         """
         logger.info("entering delete_target_remote()")
-        result, stdout = self.sshshell.run(
-            f"rm -f {self.remote_dir}/{self.remote_file}"
-        )
-        if not result:
-            err = "remote file already exists, and could not be deleted"
-            self.scs.close(err_str=err)
+        if self.check_target_exists():
+            if self.overwrite:
+                result, stdout = self.sshshell.run(
+                    f"rm -f {self.remote_dir}/{self.remote_file}"
+                )
+                if not result:
+                    err = "remote file already exists, and could not be deleted"
+                    self.scs.close(err_str=err)
+            else:
+                err = "remote file already exists. use --overwrite arg or delete it manually"
+                self.scs.close(err_str=err)
 
     def determine_local_filesize(self):
         """determines the local files size in bytes

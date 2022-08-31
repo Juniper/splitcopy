@@ -18,6 +18,7 @@ import os
 import re
 import signal
 import sys
+import tempfile
 import time
 import traceback
 from math import ceil
@@ -55,6 +56,7 @@ class SplitCopyGet:
         self.noverify = kwargs.get("noverify")
         self.split_timeout = kwargs.get("split_timeout")
         self.use_curses = kwargs.get("use_curses")
+        self.overwrite = kwargs.get("overwrite")
         self.sshshell = None
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
@@ -99,6 +101,15 @@ class SplitCopyGet:
         # handle sigint gracefully on *nix
         signal.signal(signal.SIGINT, self.handlesigint)
 
+        # expand local dir path
+        self.local_dir = self.expand_local_dir()
+
+        # verify local dir is writeable
+        self.test_local_dir_perms()
+
+        # if target is a file, does it already exist?, delete it?
+        self.delete_target_local(self.target)
+
         # connect to host
         self.sshshell, ssh_kwargs = self.scs.connect(SSHShell, **ssh_kwargs)
 
@@ -115,17 +126,23 @@ class SplitCopyGet:
             # enter shell mode
             self.sshshell.run("start shell", exitcode=False)
 
+        # ensure source path is valid
+        self.validate_remote_path_get()
+
+        # determine local filename
+        self.local_file = self.determine_local_filename()
+
+        # define absolute local path
+        self.local_path = f"{self.local_dir}{os.path.sep}{self.local_file}"
+
+        # does the file already exist?, delete it?
+        self.delete_target_local(self.local_path)
+
         # determine the OS
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
 
         # verify which protocol to use
         self.copy_proto, self.passwd = self.scs.which_proto(self.copy_proto)
-
-        # ensure source path is valid
-        self.validate_remote_path_get()
-
-        # ensure dest path is valid
-        self.local_dir, self.local_file, self.local_path = self.parse_target_arg()
 
         # check required binaries exist on remote host
         self.scs.req_binaries(junos=junos, evo=evo)
@@ -134,9 +151,6 @@ class SplitCopyGet:
         self.scs.remote_cleanup(
             remote_dir=self.remote_dir, remote_file=self.remote_file, silent=True
         )
-
-        # delete target file if it already exists
-        self.delete_target_local()
 
         # determine remote file size
         file_size = self.remote_filesize()
@@ -286,44 +300,61 @@ class SplitCopyGet:
         self.scs.remote_file = self.remote_file
         self.scs.remote_dir = self.remote_dir
 
-    def parse_target_arg(self):
-        """determines the local file/dir/path based on the target arg
+    def expand_local_dir(self):
+        """determines the local dir based on the target arg
         :return local_dir:
         :type string:
-        :return local_file:
-        :type string:
-        :return local_path:
-        :type string:
         """
-        logger.info("entering parse_target_arg()")
+        logger.info("entering expand_local_dir()")
         local_dir = None
-        local_file = None
-        local_path = None
-        target = self.target
-        remote_file = self.remote_file
+        target = os.path.abspath(os.path.expanduser(self.target))
         if os.path.isdir(target):
             # target is a <path>/
-            local_dir = os.path.abspath(os.path.expanduser(target))
-            local_file = remote_file
+            local_dir = target
         elif os.path.isdir(os.path.dirname(target)):
             # target is a <path>/<filename>
-            local_dir = os.path.dirname(os.path.abspath(os.path.expanduser(target)))
-            if os.path.basename(target) != remote_file:
-                # have to honour the change of name
-                local_file = os.path.basename(target)
-            else:
-                local_file = remote_file
+            local_dir = os.path.dirname(target)
         else:
             # target is <filename> only
             local_dir = os.getcwd()
+        logger.debug(f"local dir = {local_dir}")
+        return local_dir
+
+    def test_local_dir_perms(self):
+        """ensure local directory is writeable
+        :return None:
+        :raises SystemExit: if directory is not writeable
+        """
+        logger.debug("entering test_local_dir_perms()")
+        try:
+            with tempfile.TemporaryFile(dir=self.local_dir) as foo:
+                pass
+        except PermissionError:
+            raise SystemExit(
+                f"Unable to write file to {self.local_dir} due to directory permissions"
+            )
+
+    def determine_local_filename(self):
+        """determines the local file based on the target arg
+        :return local_file:
+        :type string:
+        """
+        logger.info("entering parse_target_arg()")
+        local_file = None
+        target = self.target
+        remote_file = self.remote_file
+        if os.path.isdir(target):
+            # target is a '<path>/'
+            local_file = remote_file
+        else:
+            # target is a <path>/<filename>, or <filename> only
             if os.path.basename(target) != remote_file:
                 # have to honour the change of name
                 local_file = os.path.basename(target)
             else:
                 local_file = remote_file
-
-        local_path = f"{local_dir}{os.path.sep}{local_file}"
-        return local_dir, local_file, local_path
+        logger.debug(f"local file = {local_file}")
+        return local_file
 
     def expand_remote_dir(self):
         """expands the remote directory to its absolute path
@@ -427,14 +458,54 @@ class SplitCopyGet:
                 f"filesize_path updated from {self.remote_path} to {self.filesize_path}"
             )
 
-    def delete_target_local(self):
-        """deletes the target file if it already exists
+    def check_target_exists(self, path):
+        """checks if the target file already exists
+        :param path: path to file
+        :type string:
+        :return result:
+        :type bool:
+        """
+        logger.info("entering check_target_exists()")
+        result = False
+        if os.path.exists(path) and os.path.isfile(path) or os.path.islink(path):
+            result = True
+        return result
+
+    def delete_target_local(self, file_path):
+        """verifies whether path is a file.
+        if true and --overwrite flag is specified attempt to delete it
+        else alert the user and exit
+        :param file_path: path to file
+        :type string:
         :return None:
+        :raises SystemExit: if file cannot be deleted
         """
         logger.info("entering delete_target_local()")
-        file_path = self.local_dir + os.path.sep + self.local_file
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        err = ""
+        if self.check_target_exists(file_path):
+            if self.overwrite:
+                try:
+                    os.remove(file_path)
+                    print(f"successfully deleted file {file_path}")
+                except PermissionError:
+                    err = (
+                        f"target file {file_path} already exists but could "
+                        "not be deleted due to a permissions error"
+                    )
+            else:
+                err = (
+                    f"target file {file_path} already exists. "
+                    "use --overwrite arg or delete it manually"
+                )
+
+        if err:
+            if self.sshshell is not None:
+                self.scs.close(
+                    err_str=err,
+                    hard_close=self.hard_close,
+                )
+            else:
+                raise SystemExit(err)
 
     def remote_filesize(self):
         """determines the remote file size in bytes
