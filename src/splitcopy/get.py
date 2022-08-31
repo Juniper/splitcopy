@@ -634,7 +634,8 @@ class SplitCopyGet:
             f"size_b={block_size}; size_tb={total_blocks}; i=0; o=00; "
             "while [ $i -lt $size_tb ]; do "
             f"dd if={self.remote_path} of={remote_tmpdir}/{self.remote_file}_$o "
-            f"bs={_BUF_SIZE} count=$size_b skip=$i; "
+            f"bs={_BUF_SIZE} count=$size_b skip=$i 2>&1; "
+            "result=`echo $?`; if [ $result -gt 0 ]; then exit 1; fi;"
             "i=`expr $i + $size_b`; o=`expr $o + 1`; "
             "if [ $o -lt 10 ]; then o=0$o; fi; done"
         )
