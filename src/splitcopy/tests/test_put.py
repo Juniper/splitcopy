@@ -209,9 +209,6 @@ class TestSplitCopyPut:
         def validate_remote_path_put():
             pass
 
-        def check_target_exists():
-            return True
-
         def delete_target_remote():
             pass
 
@@ -245,7 +242,6 @@ class TestSplitCopyPut:
                 scput.progress.totals["percent_done"] = n
 
         monkeypatch.setattr(scput, "validate_remote_path_put", validate_remote_path_put)
-        monkeypatch.setattr(scput, "check_target_exists", check_target_exists)
         monkeypatch.setattr(scput, "delete_target_remote", delete_target_remote)
         monkeypatch.setattr(scput, "determine_local_filesize", determine_local_filesize)
         monkeypatch.setattr(scput, "local_sha_put", local_sha_put)
@@ -273,9 +269,6 @@ class TestSplitCopyPut:
 
         def validate_remote_path_put():
             pass
-
-        def check_target_exists():
-            return True
 
         def delete_target_remote():
             pass
@@ -305,7 +298,6 @@ class TestSplitCopyPut:
 
         scput.noverify = True
         monkeypatch.setattr(scput, "validate_remote_path_put", validate_remote_path_put)
-        monkeypatch.setattr(scput, "check_target_exists", check_target_exists)
         monkeypatch.setattr(scput, "delete_target_remote", delete_target_remote)
         monkeypatch.setattr(scput, "determine_local_filesize", determine_local_filesize)
         monkeypatch.setattr(scput, "split_file_local", split_file_local)
@@ -332,9 +324,6 @@ class TestSplitCopyPut:
         def validate_remote_path_put():
             pass
 
-        def check_target_exists():
-            return True
-
         def delete_target_remote():
             pass
 
@@ -354,7 +343,6 @@ class TestSplitCopyPut:
             raise TransferError
 
         monkeypatch.setattr(scput, "validate_remote_path_put", validate_remote_path_put)
-        monkeypatch.setattr(scput, "check_target_exists", check_target_exists)
         monkeypatch.setattr(scput, "delete_target_remote", delete_target_remote)
         monkeypatch.setattr(scput, "determine_local_filesize", determine_local_filesize)
         monkeypatch.setattr(scput, "local_sha_put", local_sha_put)
@@ -559,7 +547,7 @@ class TestSplitCopyPut:
         with raises(ValueError):
             scput.path_startswith_tilda()
 
-    def test_check_target_exists(self, monkeypatch: MonkeyPatch):
+    def test_check_target_exists(self):
         class MockSSHShell2(MockSSHShell):
             def run(cmd):
                 return (True, "")
@@ -569,26 +557,47 @@ class TestSplitCopyPut:
         result = scput.check_target_exists()
         assert result == True
 
-    def test_delete_target_remote(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
-                return (True, "")
+    def test_delete_target_remote_no_overwrite(self, monkeypatch: MonkeyPatch):
+        def check_target_exists(*args):
+            return True
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
-        result = scput.delete_target_remote()
-        assert result == None
+        monkeypatch.setattr(scput, "check_target_exists", check_target_exists)
+        scput.scs = MockSplitCopyShared()
+        with raises(SystemExit):
+            scput.delete_target_remote()
 
-    def test_delete_target_remote_fail(self, monkeypatch: MonkeyPatch):
+    def test_delete_target_remote_overwrite_fail(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(cmd):
                 return (False, "")
 
+        def check_target_exists(*args):
+            return True
+
         scput = SplitCopyPut()
+        scput.overwrite = True
+        monkeypatch.setattr(scput, "check_target_exists", check_target_exists)
         scput.sshshell = MockSSHShell2
         scput.scs = MockSplitCopyShared()
         with raises(SystemExit):
             scput.delete_target_remote()
+
+    def test_delete_target_remote_overwrite_nofail(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell2(MockSSHShell):
+            def run(cmd):
+                return (True, "")
+
+        def check_target_exists(*args):
+            return True
+
+        scput = SplitCopyPut()
+        scput.overwrite = True
+        monkeypatch.setattr(scput, "check_target_exists", check_target_exists)
+        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared()
+        result = scput.delete_target_remote()
+        assert result == None
 
     def test_determine_local_filesize(self, monkeypatch: MonkeyPatch):
         def getsize(path):

@@ -155,6 +155,7 @@ def test_main_filenotfounderror_local_windows(monkeypatch: MonkeyPatch):
             noverify=False,
             log=None,
             nocurses=False,
+            overwrite=False,
         )
 
     def splitdrive(*args):
@@ -178,6 +179,7 @@ def test_main_permerror_local(monkeypatch: MonkeyPatch):
             noverify=False,
             log=None,
             nocurses=False,
+            overwrite=False,
         )
 
     def isfile(*args):
@@ -203,6 +205,7 @@ def test_main_isadirerror_local(monkeypatch: MonkeyPatch):
             noverify=False,
             log=None,
             nocurses=True,
+            overwrite=False,
         )
 
     def isfile(*args):
@@ -242,6 +245,7 @@ def test_main_put_ftp_success(monkeypatch: MonkeyPatch):
             ssh_key=["/var/tmp/sshkey"],
             ssh_port=[22],
             split_timeout=[300],
+            overwrite=False,
         )
 
     def parse_source_arg_as_local(*args):
@@ -280,6 +284,7 @@ def test_main_get_scp_success(monkeypatch: MonkeyPatch):
             ssh_key=None,
             ssh_port=None,
             split_timeout=None,
+            overwrite=False,
         )
 
     def isfile(*args):
@@ -316,6 +321,7 @@ def test_main_put_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
             ssh_key=["/var/tmp/sshkey"],
             ssh_port=[22],
             split_timeout=[300],
+            overwrite=False,
         )
 
     def isfile(*args):
@@ -350,6 +356,7 @@ def test_main_get_parse_arg_as_remote_fail(monkeypatch: MonkeyPatch):
             ssh_key=None,
             ssh_port=None,
             split_timeout=None,
+            overwrite=False,
         )
 
     def isfile(*args):
@@ -382,6 +389,7 @@ def test_main_get_resolution_fail(monkeypatch: MonkeyPatch):
             ssh_key=None,
             ssh_port=None,
             split_timeout=None,
+            overwrite=False,
         )
 
     def isfile(*args):
@@ -418,6 +426,7 @@ def test_main_put_ftp_sshkey_notfound(monkeypatch: MonkeyPatch):
             ssh_key=["/var/tmp/sshkey"],
             ssh_port=None,
             split_timeout=None,
+            overwrite=False,
         )
 
     def parse_source_arg_as_local(*args):
@@ -459,6 +468,7 @@ def test_main_put_ftp_sshport_notint(monkeypatch: MonkeyPatch):
             ssh_key=None,
             ssh_port=["foo"],
             split_timeout=None,
+            overwrite=False,
         )
 
     def parse_source_arg_as_local(*args):
@@ -497,6 +507,7 @@ def test_main_put_ftp_split_timeout_notint(monkeypatch: MonkeyPatch):
             ssh_key=None,
             ssh_port=None,
             split_timeout=["foo"],
+            overwrite=False,
         )
 
     def parse_source_arg_as_local(*args):
