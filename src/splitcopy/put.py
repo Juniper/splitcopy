@@ -19,7 +19,13 @@ import signal
 import sys
 import time
 import traceback
+import warnings
 from ftplib import error_perm, error_proto, error_reply, error_temp
+
+# silence this warning
+from cryptography.utils import CryptographyDeprecationWarning
+
+warnings.simplefilter("ignore", CryptographyDeprecationWarning)
 
 # 3rd party
 from paramiko.ssh_exception import SSHException

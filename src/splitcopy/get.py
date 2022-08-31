@@ -21,7 +21,13 @@ import sys
 import tempfile
 import time
 import traceback
+import warnings
 from math import ceil
+
+# silence this warning
+from cryptography.utils import CryptographyDeprecationWarning
+
+warnings.simplefilter("ignore", CryptographyDeprecationWarning)
 
 # 3rd party
 from paramiko.ssh_exception import SSHException
