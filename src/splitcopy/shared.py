@@ -470,10 +470,7 @@ class SplitCopyShared:
             )
         result, stdout = self.sshshell.run(f"mkdir -p {remote_tmpdir}")
         if not result:
-            err = (
-                "unable to create the tmp directory on remote host."
-                f"cmd output was:\n{stdout}"
-            )
+            err = f"unable to create the tmp directory {remote_tmpdir} on remote host"
             self.close(err_str=err)
         self.rm_remote_tmp = True
         return remote_tmpdir
