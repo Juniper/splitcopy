@@ -497,7 +497,7 @@ class Test_Shared:
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         with raises(SystemExit):
-            scs.req_binaries(get_op=False, junos=False, evo=False)
+            scs.req_binaries(junos=False, evo=False)
 
     def test_req_binaries(self, monkeypatch: MonkeyPatch):
         class MockSSHShell:
@@ -506,17 +506,18 @@ class Test_Shared:
 
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
-        result = scs.req_binaries(get_op=False, junos=False, evo=False)
+        result = scs.req_binaries(junos=False, evo=False)
         assert result == None
 
-    def test_req_binaries_getop(self, monkeypatch: MonkeyPatch):
+    def test_req_binaries_get(self, monkeypatch: MonkeyPatch):
         class MockSSHShell:
             def run(self, cmd, exitcode=True):
                 return True, ""
 
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
-        result = scs.req_binaries(get_op=True, junos=False, evo=False)
+        scs.copy_op = "get"
+        result = scs.req_binaries(junos=False, evo=False)
         assert result == None
 
     def test_req_sha_binaries_fail(self, monkeypatch: MonkeyPatch):
@@ -784,7 +785,7 @@ class Test_Shared:
 
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
-        scs.get_op = True
+        scs.copy_op = "get"
         scs.remote_file = "foobar"
         monkeypatch.setattr(scs, "close", close)
         monkeypatch.setattr("datetime.datetime", datetime)
@@ -805,7 +806,7 @@ class Test_Shared:
 
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
-        scs.get_op = True
+        scs.copy_op = "get"
         scs.remote_file = "foobar"
         monkeypatch.setattr("datetime.datetime", datetime)
         result = scs.mkdir_remote()
@@ -825,7 +826,6 @@ class Test_Shared:
 
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
-        scs.get_op = False
         scs.remote_file = "foobar"
         scs.remote_dir = "/tmp"
         monkeypatch.setattr("datetime.datetime", datetime)
@@ -878,7 +878,7 @@ class Test_Shared:
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.use_shell = True
-        scs.get_op = True
+        scs.copy_op = "get"
         scs.remote_dir = "/tmp"
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
@@ -902,7 +902,6 @@ class Test_Shared:
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.use_shell = True
-        scs.get_op = False
         scs.remote_dir = "/tmp"
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
@@ -922,7 +921,6 @@ class Test_Shared:
 
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
-        scs.get_op = False
         scs.remote_dir = "/tmp"
         result = scs.storage_check_remote(100000, 7693)
         assert result == None
@@ -959,7 +957,7 @@ class Test_Shared:
             raise SystemExit
 
         scs = SplitCopyShared()
-        scs.get_op = True
+        scs.copy_op = "get"
         scs.local_dir = "/var/tmp"
         monkeypatch.setattr("shutil.disk_usage", disk_usage)
         monkeypatch.setattr("tempfile.gettempdir", gettempdir)
@@ -975,7 +973,7 @@ class Test_Shared:
             return [494384795648, 215990648832, 278394146816]
 
         scs = SplitCopyShared()
-        scs.get_op = True
+        scs.copy_op = "get"
         scs.local_dir = "/var/tmp"
         monkeypatch.setattr("shutil.disk_usage", disk_usage)
         monkeypatch.setattr("tempfile.gettempdir", gettempdir)
@@ -1155,7 +1153,7 @@ class Test_Shared:
                 return True, ""
 
         scs = SplitCopyShared()
-        scs.get_op = True
+        scs.copy_op = "get"
         scs.sshshell = MockSSHShell()
         result = scs.remote_cleanup()
         assert result == None

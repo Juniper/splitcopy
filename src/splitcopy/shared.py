@@ -58,7 +58,7 @@ class SplitCopyShared:
         self.ssh_key = kwargs.get("ssh_key")
         self.ssh_port = kwargs.get("ssh_port")
         self.local_dir = kwargs.get("local_dir")
-        self.get_op = kwargs.get("get")
+        self.copy_op = kwargs.get("copy_op")
         self.remote_dir = ""
         self.remote_file = ""
         self.command_list = []
@@ -284,10 +284,8 @@ class SplitCopyShared:
         sshd_version = float(version[0:3])
         return sshd_version
 
-    def req_binaries(self, get_op=False, junos=False, evo=False):
+    def req_binaries(self, junos=False, evo=False):
         """ensures required binaries exist on remote host
-        :param get_op:
-        :type bool:
         :param junos:
         :type bool:
         :param evo:
@@ -296,7 +294,7 @@ class SplitCopyShared:
         """
         logger.info("entering req_binaries()")
         if not junos and not evo:
-            if get_op:
+            if self.copy_op == "get":
                 req_bins = "dd ls df rm"
             else:
                 req_bins = "cat ls df rm"
@@ -462,7 +460,7 @@ class SplitCopyShared:
         """
         logger.info("entering mkdir_remote()")
         time_stamp = datetime.datetime.strftime(datetime.datetime.now(), "%y%m%d%H%M%S")
-        if self.get_op:
+        if self.copy_op == "get":
             remote_tmpdir = f"/var/tmp/splitcopy_{self.remote_file}.{time_stamp}"
         else:
             remote_tmpdir = (
@@ -497,7 +495,7 @@ class SplitCopyShared:
 
         avail_bytes = int(avail_blocks) * 1024
         logger.info(f"remote filesystem available bytes is {avail_bytes}")
-        if self.get_op:
+        if self.copy_op == "get":
             if file_size > avail_bytes:
                 err = (
                     "not enough storage on remote host in /var/tmp.\nAvailable bytes "
@@ -534,7 +532,7 @@ class SplitCopyShared:
             )
             self.close(err_str=err)
 
-        if self.get_op:
+        if self.copy_op == "get":
             avail_bytes = shutil.disk_usage(self.local_dir)[2]
             logger.info(
                 f"local filesystem {self.local_dir} available bytes is {avail_bytes}"
@@ -704,7 +702,7 @@ class SplitCopyShared:
         if not silent:
             print(f"\r{pad_string('deleting remote tmp directory...')}")
         if self.remote_tmpdir is None:
-            if self.get_op:
+            if self.copy_op == "get":
                 self.sshshell.run(f"rm -rf /var/tmp/splitcopy_{self.remote_file}.*")
             else:
                 self.sshshell.run(
