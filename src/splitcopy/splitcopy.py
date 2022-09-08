@@ -16,8 +16,6 @@ import os
 import re
 import signal
 import socket
-import sys
-import traceback
 
 from splitcopy.get import SplitCopyGet
 from splitcopy.put import SplitCopyPut
@@ -70,32 +68,48 @@ def parse_args():
     return args
 
 
-def parse_source_arg_as_local(source):
+def parse_arg_as_local(arg_name):
     local_file = None
     local_dir = None
-    local_path = os.path.abspath(os.path.expanduser(source))
+    local_path = os.path.abspath(os.path.expanduser(arg_name))
     with open(local_path, "rb"):
         local_file = os.path.basename(local_path)
         local_dir = os.path.dirname(local_path)
     return local_file, local_dir, local_path
 
 
-def parse_arg_as_remote(arg_name, arg_str):
+def parse_arg_as_remote(arg_name):
     user = None
     host = None
-    if re.search(r".*@.*:", arg_name):
-        user = arg_name.split("@")[0]
-        host = re.search(r"@(.*):", arg_name).group(1)
-    elif re.search(r".*:", arg_name):
+    remote_path = None
+    if os.path.splitdrive(arg_name)[0]:
+        # arg is a windows drive/UNC sharepoint
+        # splitdrive() only returns a value at index 0 on windows systems
+        raise ValueError("local windows path")
+    elif re.match(r".+@.+:", arg_name):
+        # usernames ought to consist of [a-z_][a-z0-9_-]*[$]?
+        # according to useradd man page, but the use of chars such as '@'
+        # are not enforced which affects the pattern match
+        # hostname does thankfully enforce '@' and ':' as invalid
+        split_str = arg_name.split("@")
+        user = "@".join(split_str[:-1])
+        host = split_str[-1].split(":")[0]
+        remote_path = split_str[-1].split(":")[-1]
+    elif re.match(r".+:", arg_name):
         user = getpass.getuser()
         host = arg_name.split(":")[0]
+        remote_path = arg_name.split(":")[1]
     else:
-        raise ValueError(
-            f"{arg_str} argument path is not in the correct format "
-            "<user>@<host>:<path> or <host>:<path>"
-        )
-    remote_path = arg_name.split(":")[1]
+        raise ValueError
     return user, host, remote_path
+
+
+def open_ssh_keyfile(path):
+    result = False
+    ssh_key = os.path.abspath(os.path.expanduser(path))
+    with open(ssh_key, "r") as key:
+        result = True
+    return result
 
 
 def handlesigint(sigint, stack):
@@ -126,8 +140,6 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
     passwd = None
     ssh_key = None
     ssh_port = 22
-    remote_dir = None
-    remote_file = None
     remote_path = None
     local_dir = None
     local_file = None
@@ -139,38 +151,53 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
     target = args.target
     use_curses = True
     overwrite = args.overwrite
+    target_remote = False
+    source_remote = False
     if args.nocurses:
         use_curses = False
 
-    if os.path.isfile(source):
+    # test whether source or target is a correctly formatted remote path
+
+    try:
+        user, host, remote_path = parse_arg_as_remote(target)
+        target_remote = True
+    except ValueError:
+        pass
+
+    try:
+        user, host, remote_path = parse_arg_as_remote(source)
+        source_remote = True
+    except ValueError:
+        pass
+
+    if target_remote and source_remote:
+        raise SystemExit(
+            "only one of the source or target arguments can "
+            "be a remote path using the format "
+            "<user>@<host>:<path> or <host>:<path>"
+        )
+    elif not target_remote and not source_remote:
+        raise SystemExit(
+            "neither of the source or target arguments "
+            "specify a remote path in the correct format "
+            "<user>@<host>:<path> or <host>:<path>"
+        )
+    elif target_remote:
         try:
-            local_file, local_dir, local_path = parse_source_arg_as_local(source)
+            local_file, local_dir, local_path = parse_arg_as_local(source)
+        except FileNotFoundError:
+            raise SystemExit(f"'{source}' file does not exist")
         except PermissionError:
             raise SystemExit(
-                f"source file '{source}' exists, but cannot be read due to a permissions error"
+                f"'{source}' exists, but file cannot be read due to a permissions error"
             )
-    elif os.path.isdir(source):
-        raise SystemExit("source arg is a directory, not a file")
-
-    if not local_file and os.path.splitdrive(source)[0]:
-        # source arg is a windows drive/UNC sharepoint
-        # splitdrive will only return a value on windows systems
-        raise SystemExit(f"source arg file at path {source} cannot be found")
-
-    if local_file is not None:
+        except IsADirectoryError:
+            raise SystemExit(f"'{source}' is a directory, not a file")
         copy_op = "put"
-        try:
-            user, host, remote_path = parse_arg_as_remote(target, "target")
-        except ValueError as err:
-            logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-            raise SystemExit(err)
     else:
+        if not remote_path:
+            raise SystemExit(f"source argument '{source}' doesn't specify a file")
         copy_op = "get"
-        try:
-            user, host, remote_path = parse_arg_as_remote(source, "source")
-        except ValueError as err:
-            logger.debug("".join(traceback.format_exception(*sys.exc_info())))
-            raise SystemExit(err)
 
     try:
         host = socket.gethostbyname(host)
@@ -186,9 +213,17 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
         copy_proto = "scp"
 
     if args.ssh_key is not None:
-        ssh_key = os.path.abspath(args.ssh_key[0])
-        if not os.path.isfile(ssh_key):
-            raise SystemExit("specified ssh key not found")
+        ssh_key = args.ssh_key[0]
+        try:
+            open_ssh_keyfile(ssh_key)
+        except FileNotFoundError:
+            raise SystemExit(f"'{ssh_key}' file does not exist")
+        except PermissionError:
+            raise SystemExit(
+                f"'{ssh_key}' exists, but file cannot be read due to a permissions error"
+            )
+        except IsADirectoryError:
+            raise SystemExit(f"'{ssh_key}' is a directory, not a file")
 
     if args.ssh_port is not None:
         try:
@@ -209,13 +244,12 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
         "passwd": passwd,
         "ssh_key": ssh_key,
         "ssh_port": ssh_port,
-        "remote_dir": remote_dir,
-        "remote_file": remote_file,
         "remote_path": remote_path,
         "local_dir": local_dir,
         "local_file": local_file,
         "local_path": local_path,
         "copy_proto": copy_proto,
+        "copy_op": copy_op,
         "noverify": noverify,
         "split_timeout": split_timeout,
         "use_curses": use_curses,
