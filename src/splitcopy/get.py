@@ -113,8 +113,14 @@ class SplitCopyGet:
         # verify local dir is writeable
         self.test_local_dir_perms()
 
-        # if target is a file, does it already exist?, delete it?
-        self.delete_target_local(self.target)
+        # determine local filename
+        self.local_file = self.determine_local_filename()
+
+        # define absolute local path
+        self.local_path = f"{self.local_dir}{os.path.sep}{self.local_file}"
+
+        # check if file already exists. delete it?
+        self.delete_target_local(self.local_path)
 
         # connect to host
         self.sshshell, ssh_kwargs = self.scs.connect(SSHShell, **ssh_kwargs)
@@ -134,15 +140,6 @@ class SplitCopyGet:
 
         # ensure source path is valid
         self.validate_remote_path_get()
-
-        # determine local filename
-        self.local_file = self.determine_local_filename()
-
-        # define absolute local path
-        self.local_path = f"{self.local_dir}{os.path.sep}{self.local_file}"
-
-        # does the file already exist?, delete it?
-        self.delete_target_local(self.local_path)
 
         # determine the OS
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
@@ -323,6 +320,8 @@ class SplitCopyGet:
         else:
             # target is <filename> only
             local_dir = os.getcwd()
+        # update SplitCopyShared
+        self.scs.local_dir = local_dir
         logger.debug(f"local dir = {local_dir}")
         return local_dir
 
@@ -492,15 +491,14 @@ class SplitCopyGet:
             if self.overwrite:
                 try:
                     os.remove(file_path)
-                    print(f"successfully deleted file {file_path}")
                 except PermissionError:
                     err = (
-                        f"target file {file_path} already exists but could "
-                        "not be deleted due to a permissions error"
+                        f"target file '{file_path}' already exists, cannot "
+                        "be deleted due to a permissions error"
                     )
             else:
                 err = (
-                    f"target file {file_path} already exists. "
+                    f"target file '{file_path}' already exists, "
                     "use --overwrite arg or delete it manually"
                 )
 
