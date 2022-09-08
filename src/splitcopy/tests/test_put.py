@@ -207,7 +207,7 @@ class TestSplitCopyPut:
         scput.progress = MockProgress()
 
         def validate_remote_path_put():
-            pass
+            return ("", "")
 
         def delete_target_remote():
             pass
@@ -268,7 +268,7 @@ class TestSplitCopyPut:
         scput.progress = MockProgress()
 
         def validate_remote_path_put():
-            pass
+            return ("", "")
 
         def delete_target_remote():
             pass
@@ -322,7 +322,7 @@ class TestSplitCopyPut:
         scput.progress = MockProgress()
 
         def validate_remote_path_put():
-            pass
+            return ("", "")
 
         def delete_target_remote():
             pass
@@ -387,11 +387,11 @@ class TestSplitCopyPut:
             def run(cmd):
                 return (True, "")
 
-        def expand_remote_path():
-            scput.remote_path = "/homes/foobar"
+        def expand_remote_path(*args):
+            return "/homes/foobar"
 
-        def path_startswith_tilda():
-            pass
+        def path_startswith_tilda(*args):
+            return "/homes/foobar"
 
         scput.sshshell = MockSSHShell2
         scput.scs = MockSplitCopyShared
@@ -399,8 +399,8 @@ class TestSplitCopyPut:
         monkeypatch.setattr(scput, "path_startswith_tilda", path_startswith_tilda)
         scput.local_file = "foo"
         scput.remote_path = ""
-        scput.validate_remote_path_put()
-        assert scput.remote_dir == "/homes/foobar" and scput.remote_file == "foo"
+        result = scput.validate_remote_path_put()
+        assert result == ("foo", "/homes/foobar")
 
     def test_validate_remote_path_put_isdir(self):
         scput = SplitCopyPut()
@@ -412,8 +412,8 @@ class TestSplitCopyPut:
         scput.sshshell = MockSSHShell2
         scput.local_file = "foo"
         scput.remote_path = "/var/tmp"
-        scput.validate_remote_path_put()
-        assert scput.remote_dir == "/var/tmp" and scput.remote_file == "foo"
+        result = scput.validate_remote_path_put()
+        assert result == ("foo", "/var/tmp")
 
     def test_validate_remote_path_existingfile_basename_match(self):
         class MockSSHShell2(MockSSHShell):
@@ -428,7 +428,7 @@ class TestSplitCopyPut:
         scput.local_file = "foo"
         scput.remote_path = "/var/tmp/foo"
         result = scput.validate_remote_path_put()
-        assert result == None
+        assert result == ("foo", "/var/tmp")
 
     def test_validate_remote_path_put_newfile_basename_nomatch(self):
         class MockSSHShell2(MockSSHShell):
@@ -446,7 +446,7 @@ class TestSplitCopyPut:
         scput.local_file = "foo"
         scput.remote_path = "/var/tmp/bar"
         result = scput.validate_remote_path_put()
-        assert result == None
+        assert result == ("bar", "/var/tmp")
 
     def test_validate_remote_path_put_fail(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
@@ -466,7 +466,7 @@ class TestSplitCopyPut:
             scput.validate_remote_path_put()
 
     def test_validate_remote_path_put_fail2(self, monkeypatch: MonkeyPatch):
-        def expand_remote_path():
+        def expand_remote_path(*args):
             raise ValueError
 
         scput = SplitCopyPut()
@@ -484,9 +484,8 @@ class TestSplitCopyPut:
         scput = SplitCopyPut()
         scput.use_shell = True
         scput.sshshell = MockSSHShell2
-        scput.remote_path = "./tmp"
-        scput.expand_remote_path()
-        assert scput.remote_path == "/homes/foo/tmp"
+        result = scput.expand_remote_path("./tmp")
+        assert result == "/homes/foo/tmp"
 
     def test_expand_remote_path_exec(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
@@ -496,9 +495,8 @@ class TestSplitCopyPut:
 
         scput = SplitCopyPut()
         scput.sshshell = MockSSHShell2
-        scput.remote_path = "./tmp"
-        scput.expand_remote_path()
-        assert scput.remote_path == "/homes/foo/tmp"
+        result = scput.expand_remote_path("./tmp")
+        assert result == "/homes/foo/tmp"
 
     def test_expand_remote_path_fail(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
@@ -507,9 +505,8 @@ class TestSplitCopyPut:
 
         scput = SplitCopyPut()
         scput.sshshell = MockSSHShell2
-        scput.remote_path = "./tmp"
         with raises(ValueError):
-            scput.expand_remote_path()
+            scput.expand_remote_path("./tmp")
 
     def test_path_startswith_tilda_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
@@ -520,9 +517,8 @@ class TestSplitCopyPut:
         scput = SplitCopyPut()
         scput.use_shell = True
         scput.sshshell = MockSSHShell2
-        scput.remote_path = "~/tmp"
-        scput.path_startswith_tilda()
-        assert scput.remote_path == "/homes/foo/tmp"
+        result = scput.path_startswith_tilda("~/tmp")
+        assert result == "/homes/foo/tmp"
 
     def test_path_startswith_tilda_exec(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
@@ -532,9 +528,8 @@ class TestSplitCopyPut:
 
         scput = SplitCopyPut()
         scput.sshshell = MockSSHShell2
-        scput.remote_path = "~/tmp"
-        scput.path_startswith_tilda()
-        assert scput.remote_path == "/homes/foo/tmp"
+        result = scput.path_startswith_tilda("~/tmp")
+        assert result == "/homes/foo/tmp"
 
     def test_path_startswith_tilda_fail(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
@@ -543,9 +538,8 @@ class TestSplitCopyPut:
 
         scput = SplitCopyPut()
         scput.sshshell = MockSSHShell2
-        scput.remote_path = "~/tmp"
         with raises(ValueError):
-            scput.path_startswith_tilda()
+            scput.path_startswith_tilda("~/tmp")
 
     def test_check_target_exists(self):
         class MockSSHShell2(MockSSHShell):
