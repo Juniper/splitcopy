@@ -204,7 +204,7 @@ class TestSplitCopyGet:
         scget.progress = MockProgress()
 
         def validate_remote_path_get():
-            pass
+            return ("file", "dir", "path", "filesize_path")
 
         def delete_target_local(*args):
             pass
@@ -278,7 +278,7 @@ class TestSplitCopyGet:
         scget.progress = MockProgress()
 
         def validate_remote_path_get():
-            pass
+            return ("file", "dir", "path", "filesize_path")
 
         def delete_target_local(*args):
             pass
@@ -340,7 +340,7 @@ class TestSplitCopyGet:
 
     def test_get_fail(self, monkeypatch: MonkeyPatch):
         def validate_remote_path_get():
-            pass
+            return ("file", "dir", "path", "filesize_path")
 
         def determine_local_filename(*args):
             return "foo"
@@ -441,8 +441,36 @@ class TestSplitCopyGet:
         assert expected == result
 
     def test_validate_remote_path_get_fail(self, monkeypatch: MonkeyPatch):
-        def expand_remote_dir():
+        scget = SplitCopyGet()
+        scget.scs = MockSplitCopyShared()
+
+        def verify_path_exists(remote_path):
             raise ValueError
+
+        monkeypatch.setattr(scget, "verify_path_exists", verify_path_exists)
+        with raises(SystemExit):
+            scget.validate_remote_path_get()
+
+    def test_validate_remote_path_get(self, monkeypatch: MonkeyPatch):
+        scget = SplitCopyGet()
+
+        def expand_remote_path(*args):
+            return "/var/tmp/foobar"
+
+        def path_startswith_tilda(*args):
+            return "/var/tmp/foobar"
+
+        def verify_path_is_not_directory(*args):
+            return False
+
+        def verify_path_exists(*args):
+            return True
+
+        def verify_path_is_readable(*args):
+            return True
+
+        def check_if_symlink(*args):
+            return "/var/tmp/foobar"
 
         def dirname(*args):
             return "/var/tmp"
@@ -450,28 +478,23 @@ class TestSplitCopyGet:
         def basename(*args):
             return "foobar"
 
-        scget = SplitCopyGet()
-        scget.scs = MockSplitCopyShared()
+        monkeypatch.setattr(scget, "expand_remote_path", expand_remote_path)
+        monkeypatch.setattr(scget, "path_startswith_tilda", path_startswith_tilda)
+        monkeypatch.setattr(
+            scget, "verify_path_is_not_directory", verify_path_is_not_directory
+        )
+        monkeypatch.setattr(scget, "verify_path_exists", verify_path_exists)
+        monkeypatch.setattr(scget, "verify_path_is_readable", verify_path_is_readable)
+        monkeypatch.setattr(scget, "check_if_symlink", check_if_symlink)
         monkeypatch.setattr("os.path.dirname", dirname)
         monkeypatch.setattr("os.path.basename", basename)
-        monkeypatch.setattr(scget, "expand_remote_dir", expand_remote_dir)
-        with raises(SystemExit):
-            scget.validate_remote_path_get()
-
-    def test_validate_remote_path_get(self, monkeypatch: MonkeyPatch):
-        scget = SplitCopyGet()
-        monkeypatch.setattr(scget, "expand_remote_dir", lambda: True)
-        monkeypatch.setattr(scget, "path_startswith_tilda", lambda: True)
-        monkeypatch.setattr(scget, "verify_path_is_not_directory", lambda: True)
-        monkeypatch.setattr(scget, "verify_file_exists", lambda: True)
-        monkeypatch.setattr(scget, "verify_file_is_readable", lambda: True)
-        monkeypatch.setattr(scget, "check_if_symlink", lambda: True)
         scget.remote_path = "/var/tmp/foobar"
-        scget.validate_remote_path_get()
-        assert (
-            scget.remote_dir == "/var/tmp"
-            and scget.remote_file == "foobar"
-            and scget.remote_path == "/var/tmp/foobar"
+        result = scget.validate_remote_path_get()
+        assert result == (
+            "foobar",
+            "/var/tmp",
+            "/var/tmp/foobar",
+            "/var/tmp/foobar",
         )
 
     def test_expand_local_dir_isdir(self, monkeypatch: MonkeyPatch):
@@ -679,7 +702,7 @@ class TestSplitCopyGet:
         result = scget.determine_local_filename()
         assert result == "bar"
 
-    def test_expand_remote_dir_fail(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_path_fail(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = False
@@ -688,11 +711,10 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_dir = "."
         with raises(ValueError):
-            scget.expand_remote_dir()
+            scget.expand_remote_path(".")
 
-    def test_expand_remote_dir_none_shell(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_path_none_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -702,16 +724,10 @@ class TestSplitCopyGet:
         scget = SplitCopyGet()
         scget.use_shell = True
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "testfile"
-        scget.remote_dir = os.path.dirname(scget.remote_path)
-        scget.remote_file = os.path.basename(scget.remote_path)
-        scget.expand_remote_dir()
-        assert (
-            scget.remote_dir == "/homes/foo/bar"
-            and scget.remote_path == "/homes/foo/bar/testfile"
-        )
+        result = scget.expand_remote_path("testfile")
+        assert result == "/homes/foo/bar/testfile"
 
-    def test_expand_remote_dir_none_exec(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_path_none_exec(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -720,16 +736,10 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "testfile"
-        scget.remote_dir = os.path.dirname(scget.remote_path)
-        scget.remote_file = os.path.basename(scget.remote_path)
-        scget.expand_remote_dir()
-        assert (
-            scget.remote_dir == "/homes/foo/bar"
-            and scget.remote_path == "/homes/foo/bar/testfile"
-        )
+        result = scget.expand_remote_path("testfile")
+        assert result == "/homes/foo/bar/testfile"
 
-    def test_expand_remote_dir_shell(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_path_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -739,16 +749,10 @@ class TestSplitCopyGet:
         scget = SplitCopyGet()
         scget.use_shell = True
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "./testfile"
-        scget.remote_dir = os.path.dirname(scget.remote_path)
-        scget.remote_file = os.path.basename(scget.remote_path)
-        scget.expand_remote_dir()
-        assert (
-            scget.remote_dir == "/homes/foo/bar"
-            and scget.remote_path == "/homes/foo/bar/testfile"
-        )
+        result = scget.expand_remote_path("./testfile")
+        assert result == "/homes/foo/bar/testfile"
 
-    def test_expand_remote_dir_exec(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_path_exec(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -757,16 +761,10 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "./testfile"
-        scget.remote_dir = os.path.dirname(scget.remote_path)
-        scget.remote_file = os.path.basename(scget.remote_path)
-        scget.expand_remote_dir()
-        assert (
-            scget.remote_dir == "/homes/foo/bar"
-            and scget.remote_path == "/homes/foo/bar/testfile"
-        )
+        result = scget.expand_remote_path("./testfile")
+        assert result == "/homes/foo/bar/testfile"
 
-    def test_expand_remote_dir2_shell(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_path2_shell(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -776,16 +774,10 @@ class TestSplitCopyGet:
         scget = SplitCopyGet()
         scget.use_shell = True
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "./tmp/testfile"
-        scget.remote_dir = os.path.dirname(scget.remote_path)
-        scget.remote_file = os.path.basename(scget.remote_path)
-        scget.expand_remote_dir()
-        assert (
-            scget.remote_dir == "/homes/foo/bar/tmp"
-            and scget.remote_path == "/homes/foo/bar/tmp/testfile"
-        )
+        result = scget.expand_remote_path("./tmp/testfile")
+        assert result == "/homes/foo/bar/tmp/testfile"
 
-    def test_expand_remote_dir2_exec(self, monkeypatch: MonkeyPatch):
+    def test_expand_remote_path2_exec(self, monkeypatch: MonkeyPatch):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = True
@@ -794,14 +786,8 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "./tmp/testfile"
-        scget.remote_dir = os.path.dirname(scget.remote_path)
-        scget.remote_file = os.path.basename(scget.remote_path)
-        scget.expand_remote_dir()
-        assert (
-            scget.remote_dir == "/homes/foo/bar/tmp"
-            and scget.remote_path == "/homes/foo/bar/tmp/testfile"
-        )
+        result = scget.expand_remote_path("./tmp/testfile")
+        assert result == "/homes/foo/bar/tmp/testfile"
 
     def test_path_startswith_tilda_cmdfail(self):
         class MockSSHShell2(MockSSHShell):
@@ -812,9 +798,8 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_dir = "~foo/bar"
         with raises(ValueError):
-            scget.path_startswith_tilda()
+            scget.path_startswith_tilda("~foo/bar")
 
     def test_path_startswith_tilda_shell(self):
         class MockSSHShell2(MockSSHShell):
@@ -826,13 +811,8 @@ class TestSplitCopyGet:
         scget = SplitCopyGet()
         scget.use_shell = True
         scget.sshshell = MockSSHShell2()
-        scget.remote_dir = "~foo/bar"
-        scget.remote_file = "test"
-        scget.path_startswith_tilda()
-        assert (
-            scget.remote_dir == "/homes/foo/bar"
-            and scget.remote_path == "/homes/foo/bar/test"
-        )
+        result = scget.path_startswith_tilda("~foo/bar")
+        assert result == "/homes/foo/bar"
 
     def test_path_startswith_tilda_exec(self):
         class MockSSHShell2(MockSSHShell):
@@ -843,13 +823,8 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_dir = "~foo/bar"
-        scget.remote_file = "test"
-        scget.path_startswith_tilda()
-        assert (
-            scget.remote_dir == "/homes/foo/bar"
-            and scget.remote_path == "/homes/foo/bar/test"
-        )
+        result = scget.path_startswith_tilda("~foo/bar")
+        assert result == "/homes/foo/bar"
 
     def test_verify_path_is_not_directory_fail(self):
         class MockSSHShell2(MockSSHShell):
@@ -860,11 +835,22 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "/var/tmp"
         with raises(ValueError):
-            scget.verify_path_is_not_directory()
+            scget.verify_path_is_not_directory("/var/tmp")
 
-    def test_verify_file_exists_fail(self):
+    def test_verify_path_is_not_directory(self):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = False
+                stdout = ""
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        result = scget.verify_path_is_not_directory("/var/tmp")
+        assert result == False
+
+    def test_verify_path_exists_fail(self):
         class MockSSHShell2(MockSSHShell):
             def __init__(self):
                 pass
@@ -876,11 +862,25 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "/var/tmp"
         with raises(ValueError):
-            scget.verify_file_exists()
+            scget.verify_path_exists("/var/tmp")
 
-    def test_verify_file_is_readable_fail(self):
+    def test_verify_path_exists(self):
+        class MockSSHShell2(MockSSHShell):
+            def __init__(self):
+                pass
+
+            def run(self, cmd):
+                result = True
+                stdout = ""
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        result = scget.verify_path_exists("/var/tmp")
+        assert result == True
+
+    def test_verify_path_is_readable_fail(self):
         class MockSSHShell2(MockSSHShell):
             def run(self, cmd):
                 result = False
@@ -889,9 +889,20 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "/var/tmp"
         with raises(ValueError):
-            scget.verify_file_is_readable()
+            scget.verify_path_is_readable("/var/tmp")
+
+    def test_verify_path_is_readable(self):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = ""
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        result = scget.verify_path_is_readable("/var/tmp")
+        assert result == True
 
     def test_check_if_symlink_shell(self):
         class MockSSHShell2(MockSSHShell):
@@ -907,9 +918,8 @@ class TestSplitCopyGet:
         scget = SplitCopyGet()
         scget.use_shell = True
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "/tmp/foo"
-        scget.check_if_symlink()
-        assert scget.filesize_path == "/var/tmp/foo"
+        result = scget.check_if_symlink("/tmp/foo")
+        assert result == "/var/tmp/foo"
 
     def test_check_if_symlink_exec(self):
         class MockSSHShell2(MockSSHShell):
@@ -920,9 +930,8 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "/tmp/foo"
-        scget.check_if_symlink()
-        assert scget.filesize_path == "/var/tmp/foo"
+        result = scget.check_if_symlink("/tmp/foo")
+        assert result == "/var/tmp/foo"
 
     def test_check_if_symlink_samedir_shell(self):
         class MockSSHShell2(MockSSHShell):
@@ -938,10 +947,8 @@ class TestSplitCopyGet:
         scget = SplitCopyGet()
         scget.use_shell = True
         scget.sshshell = MockSSHShell2()
-        scget.remote_dir = "/tmp"
-        scget.remote_path = "/tmp/foo"
-        scget.check_if_symlink()
-        assert scget.filesize_path == "/tmp/bar"
+        result = scget.check_if_symlink("/tmp/foo")
+        assert result == "/tmp/bar"
 
     def test_check_if_symlink_samedir_exec(self):
         class MockSSHShell2(MockSSHShell):
@@ -952,10 +959,8 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_dir = "/tmp"
-        scget.remote_path = "/tmp/foo"
-        scget.check_if_symlink()
-        assert scget.filesize_path == "/tmp/bar"
+        result = scget.check_if_symlink("/tmp/foo")
+        assert result == "/tmp/bar"
 
     def test_check_if_symlink_fail(self):
         class MockSSHShell2(MockSSHShell):
@@ -968,9 +973,8 @@ class TestSplitCopyGet:
 
         scget = SplitCopyGet()
         scget.sshshell = MockSSHShell2()
-        scget.remote_path = "/tmp/foo"
         with raises(ValueError):
-            scget.check_if_symlink()
+            scget.check_if_symlink("/tmp/foo")
 
     def test_check_target_exists(self, monkeypatch: MonkeyPatch):
         def exists(*args):

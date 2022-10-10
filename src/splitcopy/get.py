@@ -139,7 +139,12 @@ class SplitCopyGet:
             self.sshshell.run("start shell", exitcode=False)
 
         # ensure source path is valid
-        self.validate_remote_path_get()
+        (
+            self.remote_file,
+            self.remote_dir,
+            self.remote_path,
+            self.filesize_path,
+        ) = self.validate_remote_path_get()
 
         # determine the OS
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
@@ -282,26 +287,35 @@ class SplitCopyGet:
 
     def validate_remote_path_get(self):
         """path must be a full path, expand as required
-        :return: None
+        :return remote_file:
+        :type string:
+        :return remote_dir:
+        :type string:
+        :return remote_path:
+        :type string:
+        :return filesize_path:
+        :type string:
         """
         logger.info("entering validate_remote_path_get()")
-        self.remote_dir = os.path.dirname(self.remote_path)
-        self.remote_file = os.path.basename(self.remote_path)
+        remote_path = self.remote_path
         try:
-            self.expand_remote_dir()
-            self.path_startswith_tilda()
-            self.verify_path_is_not_directory()
-            self.verify_file_exists()
-            self.verify_file_is_readable()
-            self.check_if_symlink()
+            self.verify_path_exists(remote_path)
+            self.verify_path_is_not_directory(remote_path)
+            self.verify_path_is_readable(remote_path)
+            remote_path = self.expand_remote_path(remote_path)
+            remote_path = self.path_startswith_tilda(remote_path)
+            filesize_path = self.check_if_symlink(remote_path)
+            remote_dir = os.path.dirname(remote_path)
+            remote_file = os.path.basename(remote_path)
         except ValueError as err:
             self.scs.close(
                 err_str=err,
                 hard_close=self.hard_close,
             )
         # update SplitCopyShared with these values
-        self.scs.remote_file = self.remote_file
-        self.scs.remote_dir = self.remote_dir
+        self.scs.remote_dir = remote_dir
+        self.scs.remote_file = remote_file
+        return remote_file, remote_dir, remote_path, filesize_path
 
     def expand_local_dir(self):
         """determines the local dir based on the target arg
@@ -361,88 +375,105 @@ class SplitCopyGet:
         logger.debug(f"local file = {local_file}")
         return local_file
 
-    def expand_remote_dir(self):
-        """expands the remote directory to its absolute path
-        :return None:
+    def expand_remote_path(self, remote_path):
+        """if only a filename is provided, expands the remote
+        path to its absolute path
+        :param remote_path:
+        :type string:
+        :return remote_path:
+        :type string:
         :raises ValueError: if remote cmd fails
         """
-        logger.info("entering expand_remote_dir()")
-        if not self.remote_dir or re.match(r"\.", self.remote_dir):
+        logger.info("entering expand_remote_path()")
+        if not re.search(r"\/", remote_path) or re.match(r"\.\/", remote_path):
             result, stdout = self.sshshell.run("pwd")
             if result:
                 if self.use_shell:
                     pwd = stdout.split("\n")[1].rstrip()
                 else:
                     pwd = stdout
-                self.remote_dir = f"{pwd}{self.remote_dir.lstrip('.')}"
-                self.remote_path = f"{self.remote_dir}/{self.remote_file}"
-                logger.debug(
-                    f"remote_dir now = {self.remote_dir}, remote_path now = {self.remote_path}"
-                )
+                remote_path = re.sub(r"^\.\/", "", remote_path)
+                remote_path = f"{pwd}/{remote_path}"
+                logger.debug(f"remote_path now = {remote_path}")
             else:
-                raise ValueError("Cannot determine the directory on the remote host")
+                raise ValueError(
+                    "Cannot determine the current working directory on the remote host"
+                )
+        return remote_path
 
-    def path_startswith_tilda(self):
+    def path_startswith_tilda(self, remote_path):
         """expands ~ based path to absolute path
         :return None:
         :raises ValueError: if remote cmd fails
         """
         logger.info("entering path_startswith_tilda()")
-        if re.match(r"~", self.remote_dir):
-            result, stdout = self.sshshell.run(f"ls -d {self.remote_dir}")
+        if re.match(r"~", remote_path):
+            result, stdout = self.sshshell.run(f"ls -d {remote_path}")
             if result:
                 if self.use_shell:
-                    self.remote_dir = stdout.split("\n")[1].rstrip()
+                    remote_path = stdout.split("\n")[1].rstrip()
                 else:
-                    self.remote_dir = stdout
-                self.remote_path = f"{self.remote_dir}/{self.remote_file}"
-                logger.debug(
-                    f"remote_dir now = {self.remote_dir}, remote_path now = {self.remote_path}"
-                )
+                    remote_path = stdout
+                logger.debug(f"remote_path now = {remote_path}r")
             else:
-                raise ValueError(f"unable to expand remote path {self.remote_path}")
+                raise ValueError(f"unable to expand remote path {remote_path}")
+        return remote_path
 
-    def verify_path_is_not_directory(self):
+    def verify_path_is_not_directory(self, remote_path):
         """verifies remote path is not a directory
-        :return None:
+        :param remote_path:
+        :type string:
+        :return result:
         :raises ValueError: if path is a directory
         """
         logger.info("entering verify_path_is_not_directory()")
-        result, stdout = self.sshshell.run(f"test -d {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -d {remote_path}")
         if result:
-            raise ValueError("src path is a directory, not a file")
+            raise ValueError(f"src path '{remote_path}' is a directory, not a file")
+        return result
 
-    def verify_file_exists(self):
+    def verify_path_exists(self, remote_path):
         """verifies remote path exists
+        :param remote_path:
+        :type string:
         :return None:
         :raises ValueError: if test fails
         """
-        logger.info("entering verify_file_exists()")
-        result, stdout = self.sshshell.run(f"test -e {self.remote_path}")
+        logger.info("entering verify_path_exists()")
+        result, stdout = self.sshshell.run(f"test -e {remote_path}")
         if not result:
-            raise ValueError("file on remote host doesn't exist")
+            raise ValueError(f"'{remote_path}' on remote host doesn't exist")
+        return result
 
-    def verify_file_is_readable(self):
-        """verifies the remote file is readable
+    def verify_path_is_readable(self, remote_path):
+        """verifies the remote path is readable
+        :param remote_path:
+        :type string:
         :return None
         :raises ValueError: if test fails
         """
         logger.info("entering verify_file_is_readable()")
-        result, stdout = self.sshshell.run(f"test -r {self.remote_path}")
+        result, stdout = self.sshshell.run(f"test -r {remote_path}")
         if not result:
-            raise ValueError("file on remote host is not readable")
+            raise ValueError(f"'{remote_path}' on remote host is not readable")
+        return result
 
-    def check_if_symlink(self):
+    def check_if_symlink(self, remote_path):
         """if remote_path is a symlink, determine the link dst path
-        this is required to determine the files size
-        :return None
+        this is required to correctly determine the files size in remote_filesize()
+        :param remote_path:
+        :type string:
+        :return filesize_path:
+        :type string:
         :raises ValueError: if test fails
         """
         logger.info("entering check_if_symlink()")
-        result, stdout = self.sshshell.run(f"test -L {self.remote_path}")
+        filesize_path = remote_path
+        result, stdout = self.sshshell.run(f"test -L {remote_path}")
         if result:
             logger.info("file is a symlink")
-            result, stdout = self.sshshell.run(f"ls -l {self.remote_path}")
+            cmd = f"ls -l {remote_path}"
+            result, stdout = self.sshshell.run(cmd)
             if result:
                 if self.use_shell:
                     linked_path = stdout.split()[-2].rstrip()
@@ -451,17 +482,15 @@ class SplitCopyGet:
                 linked_dir = os.path.dirname(linked_path)
                 linked_file = os.path.basename(linked_path)
             else:
-                raise ValueError(
-                    "file on remote host is a symlink, failed to retrieve details"
-                )
+                raise ValueError(f"file on remote host is a symlink, cmd {cmd} failed")
             if not linked_dir:
                 # symlink is in the same directory as source file use self.remote_dir
-                self.filesize_path = f"{self.remote_dir}/{linked_file}"
+                remote_dir = os.path.dirname(remote_path)
+                filesize_path = f"{remote_dir}/{linked_file}"
             else:
-                self.filesize_path = f"{linked_dir}/{linked_file}"
-            logger.debug(
-                f"filesize_path updated from {self.remote_path} to {self.filesize_path}"
-            )
+                filesize_path = f"{linked_dir}/{linked_file}"
+            logger.debug(f"filesize_path updated from {remote_path} to {filesize_path}")
+        return filesize_path
 
     def check_target_exists(self, path):
         """checks if the target file already exists
