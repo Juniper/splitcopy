@@ -406,7 +406,7 @@ class SSHShell:
             rd, wr, err = select.select([chan], [], [], _SELECT_WAIT)
             if rd:
                 data = chan.recv(_RECVSZ)
-                output += data.decode()
+                output += data.decode("ascii", "ignore")
             if datetime.datetime.now() > timeout_time:
                 raise TimeoutError
         return output
