@@ -728,6 +728,23 @@ class TestParamikoShell:
         result = paramikoshell.stdout_read(timeout=10)
         assert result == "foo@bar# "
 
+    def test_stdout_read_unicode(self, monkeypatch: MonkeyPatch):
+        class MockChannel:
+            def __init__(self):
+                pass
+
+            def recv(self, nbytes):
+                return b"foo@bar# \xef\xbf\xbd"
+
+        def select(*args):
+            return True, False, False
+
+        monkeypatch.setattr("select.select", select)
+        paramikoshell = SSHShell()
+        paramikoshell._chan = MockChannel()
+        result = paramikoshell.stdout_read(timeout=10)
+        assert result == "foo@bar# "
+
     def test_set_transport_keepalive(self, monkeypatch: MonkeyPatch):
         class MockTransport:
             def set_keepalive(timer):
