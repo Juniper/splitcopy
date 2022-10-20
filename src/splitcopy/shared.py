@@ -473,41 +473,60 @@ class SplitCopyShared:
         self.rm_remote_tmp = True
         return remote_tmpdir
 
-    def storage_check_remote(self, file_size, split_size):
+    def storage_check_remote(self, file_size, split_size, remote_dir):
         """checks whether there is enough storage space on remote node
         :param file_size:
         :type int:
         :param split_size:
         :type int:
+        :param remote_dir:
+        :type string:
         :returns None:
         """
         logger.info("entering storage_check_remote()")
         avail_blocks = 0
         print("checking remote storage...")
-        result, stdout = self.sshshell.run(f"df -k {self.remote_dir}")
+        result, stdout = self.sshshell.run(f"df -k {remote_dir}")
         if not result:
             self.close(err_str="failed to determine remote disk space available")
         try:
-            avail_blocks = re.search(r" ([0-9]+) +[0-9]+ +[0-9]+ +", stdout).group(1)
+            fs_blocks = re.search(r" ([0-9]+) +([0-9]+) +(-?[0-9]+) +", stdout)
+            total_blocks = int(fs_blocks.group(1))
+            used_blocks = int(fs_blocks.group(2))
+            avail_blocks = int(fs_blocks.group(3))
         except AttributeError:
-            err = "unable to determine available blocks on remote host"
+            err = "unable to determine available storage on remote host"
             self.close(err_str=err)
 
-        avail_bytes = int(avail_blocks) * 1024
+        if avail_blocks < 0:
+            reserved_blocks_percent = 100 - round(
+                100 / total_blocks * (used_blocks + avail_blocks)
+            )
+            reserved_blocks_threshold = used_blocks + avail_blocks
+            reserved_blocks_count = total_blocks - (used_blocks + avail_blocks)
+            err = (
+                f"not enough available storage on remote host in {remote_dir}\n"
+                f"{reserved_blocks_count} / {reserved_blocks_percent}% of 1024-byte blocks "
+                "are reserved and may only be allocated by privileged processes\n"
+                f"used blocks: {used_blocks} is > than the threshold for reserved blocks: {reserved_blocks_threshold}"
+            )
+            self.close(err_str=err)
+
+        avail_bytes = avail_blocks * 1024
         logger.info(f"remote filesystem available bytes is {avail_bytes}")
         if self.copy_op == "get":
             if file_size > avail_bytes:
                 err = (
-                    "not enough storage on remote host in /var/tmp.\nAvailable bytes "
-                    f"({avail_bytes}) must be > the original file size "
+                    f"not enough storage on remote host in {remote_dir}\n"
+                    f"available bytes ({avail_bytes}) must be >= the original file size "
                     f"({file_size}) because it has to store the file chunks"
                 )
                 self.close(err_str=err)
         else:
             if file_size + split_size > avail_bytes:
                 err = (
-                    f"not enough storage on remote host in {self.remote_dir}.\n"
-                    f"Available bytes ({avail_bytes}) must be > "
+                    f"not enough storage on remote host in {remote_dir}\n"
+                    f"available bytes ({avail_bytes}) must be > "
                     f"the original file size ({file_size}) + largest chunk size "
                     f"({split_size})"
                 )
@@ -585,19 +604,25 @@ class SplitCopyShared:
         """
         return self.local_tmpdir
 
-    def find_configured_limits(self, config_stanzas):
+    def find_configured_limits(self, config_stanzas, limits):
         """Function that retrieves any configuration stazas that implement
         rate/connection limits.
+        It is faster to perform grep on the router, than to transfer
+        potentially huge amounts of text and do it locally
         :param config_stanzas:
+        :type list:
+        :param limits:
         :type list:
         :return cli_config:
         :type string:
         """
         logger.info("entering find_configured_limits()")
         cli_config = ""
+        limits_str = "|".join(limits)
         for stanza in config_stanzas:
             result, stdout = self.sshshell.run(
-                f'cli -c "show configuration {stanza} | display set | no-more"'
+                f"cli -c 'show configuration {stanza} | display set | "
+                f'grep "{limits_str}" | no-more\'',
             )
             cli_config += stdout
         return cli_config
@@ -618,7 +643,7 @@ class SplitCopyShared:
         if copy_proto == "ftp":
             limits.append("services ftp connection-limit")
             limits.append("services ftp rate-limit")
-        cli_config = self.find_configured_limits(config_stanzas)
+        cli_config = self.find_configured_limits(config_stanzas, limits)
 
         for limit in limits:
             re_limit_multiline = re.compile(rf"^set .*{limit} [0-9]", re.MULTILINE)

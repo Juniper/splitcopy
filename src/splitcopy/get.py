@@ -169,7 +169,7 @@ class SplitCopyGet:
         )
 
         # confirm remote storage is sufficient
-        self.scs.storage_check_remote(file_size, split_size)
+        self.scs.storage_check_remote(file_size, split_size, "/var/tmp")
 
         # confirm local storage is sufficient
         self.scs.storage_check_local(file_size)
