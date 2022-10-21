@@ -453,19 +453,18 @@ class SplitCopyShared:
         )
         return split_size, executor
 
-    def mkdir_remote(self):
+    def mkdir_remote(self, remote_dir, remote_file):
         """creates a tmp directory on the remote host
+        :param remote_dir:
+        :type string:
+        :param remote_file:
+        :type string:
         :returns remote_tmpdir:
         :type string:
         """
         logger.info("entering mkdir_remote()")
         time_stamp = datetime.datetime.strftime(datetime.datetime.now(), "%y%m%d%H%M%S")
-        if self.copy_op == "get":
-            remote_tmpdir = f"/var/tmp/splitcopy_{self.remote_file}.{time_stamp}"
-        else:
-            remote_tmpdir = (
-                f"{self.remote_dir}/splitcopy_{self.remote_file}.{time_stamp}"
-            )
+        remote_tmpdir = f"{remote_dir}/splitcopy_{remote_file}.{time_stamp}"
         result, stdout = self.sshshell.run(f"mkdir -p {remote_tmpdir}")
         if not result:
             err = f"unable to create the tmp directory {remote_tmpdir} on remote host"
@@ -643,6 +642,7 @@ class SplitCopyShared:
         if copy_proto == "ftp":
             limits.append("services ftp connection-limit")
             limits.append("services ftp rate-limit")
+        print("checking router configuration... ")
         cli_config = self.find_configured_limits(config_stanzas, limits)
 
         for limit in limits:
