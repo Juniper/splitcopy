@@ -463,6 +463,7 @@ class SSHShell:
             self._chan.close()
         self.channel_open()
         self.invoke_shell()
+        self.run("start shell", exitcode=False)
 
     def run(self, cmd, timeout=30, exitcode=True, combine=False):
         """wrapper around functions that send a cmd to a remote host.
