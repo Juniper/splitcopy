@@ -786,11 +786,12 @@ class Test_Shared:
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.copy_op = "get"
-        scs.remote_file = "foobar"
         monkeypatch.setattr(scs, "close", close)
         monkeypatch.setattr("datetime.datetime", datetime)
         with raises(SystemExit):
-            scs.mkdir_remote()
+            remote_dir = "/var/tmp"
+            remote_file = "foobar"
+            scs.mkdir_remote(remote_dir, remote_file)
 
     def test_mkdir_remote_get(self, monkeypatch: MonkeyPatch):
         class MockSSHShell:
@@ -807,9 +808,10 @@ class Test_Shared:
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.copy_op = "get"
-        scs.remote_file = "foobar"
         monkeypatch.setattr("datetime.datetime", datetime)
-        result = scs.mkdir_remote()
+        remote_dir = "/var/tmp"
+        remote_file = "foobar"
+        result = scs.mkdir_remote(remote_dir, remote_file)
         assert result == "/var/tmp/splitcopy_foobar.20220609231003"
 
     def test_mkdir_remote_put(self, monkeypatch: MonkeyPatch):
@@ -826,10 +828,10 @@ class Test_Shared:
 
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
-        scs.remote_file = "foobar"
-        scs.remote_dir = "/tmp"
         monkeypatch.setattr("datetime.datetime", datetime)
-        result = scs.mkdir_remote()
+        remote_dir = "/tmp"
+        remote_file = "foobar"
+        result = scs.mkdir_remote(remote_dir, remote_file)
         assert result == "/tmp/splitcopy_foobar.20220609231003"
 
     def test_storage_check_remote_cmd_fail(self, monkeypatch: MonkeyPatch):
@@ -844,7 +846,10 @@ class Test_Shared:
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
-            scs.storage_check_remote(100000, 7693)
+            remote_dir = "/tmp"
+            file_size = 100000
+            split_size = 7693
+            scs.storage_check_remote(file_size, split_size, remote_dir)
 
     def test_storage_check_remote_blocks_fail(self, monkeypatch: MonkeyPatch):
         class MockSSHShell:
@@ -858,7 +863,31 @@ class Test_Shared:
         scs.sshshell = MockSSHShell()
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
-            scs.storage_check_remote(100000, 7693)
+            remote_dir = "/tmp"
+            file_size = 100000
+            split_size = 7693
+            scs.storage_check_remote(file_size, split_size, remote_dir)
+
+    def test_storage_check_remote_not_enough_blocks(self, monkeypatch: MonkeyPatch):
+        class MockSSHShell:
+            def run(self, cmd, exitcode=True):
+                return True, (
+                    "Filesystem   1024-blocks      Used Available Capacity iused      ifree"
+                    " %iused  Mounted on\n/dev/disk3s5   482797652 472797652 -1000000 "
+                    "98% 1588060 1957553000    0%   /System/Volumes/Data\n"
+                )
+
+        def close(err_str):
+            raise SystemExit
+
+        scs = SplitCopyShared()
+        scs.sshshell = MockSSHShell()
+        monkeypatch.setattr(scs, "close", close)
+        with raises(SystemExit):
+            remote_dir = "/tmp"
+            file_size = 10000000
+            split_size = 769300
+            scs.storage_check_remote(file_size, split_size, remote_dir)
 
     def test_storage_check_remote_get_fail(self, monkeypatch: MonkeyPatch):
         class MockSSHShell:
@@ -879,10 +908,12 @@ class Test_Shared:
         scs.sshshell = MockSSHShell()
         scs.use_shell = True
         scs.copy_op = "get"
-        scs.remote_dir = "/tmp"
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
-            scs.storage_check_remote(100000, 7693)
+            remote_dir = "/tmp"
+            file_size = 100000
+            split_size = 7693
+            scs.storage_check_remote(file_size, split_size, remote_dir)
 
     def test_storage_check_remote_put_fail(self, monkeypatch: MonkeyPatch):
         class MockSSHShell:
@@ -902,10 +933,12 @@ class Test_Shared:
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
         scs.use_shell = True
-        scs.remote_dir = "/tmp"
         monkeypatch.setattr(scs, "close", close)
         with raises(SystemExit):
-            scs.storage_check_remote(100000, 7693)
+            remote_dir = "/tmp"
+            file_size = 100000
+            split_size = 7693
+            scs.storage_check_remote(file_size, split_size, remote_dir)
 
     def test_storage_check_remote_success(self, monkeypatch: MonkeyPatch):
         class MockSSHShell:
@@ -921,8 +954,10 @@ class Test_Shared:
 
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
-        scs.remote_dir = "/tmp"
-        result = scs.storage_check_remote(100000, 7693)
+        remote_dir = "/tmp"
+        file_size = 100000
+        split_size = 7693
+        result = scs.storage_check_remote(file_size, split_size, remote_dir)
         assert result == None
 
     def test_storage_check_local_fail(self, monkeypatch: MonkeyPatch):
@@ -1041,7 +1076,9 @@ class Test_Shared:
 
         scs = SplitCopyShared()
         scs.sshshell = MockSSHShell()
-        result = scs.find_configured_limits(["foo", "bar"])
+        config_stanzas = ["foo", "bar"]
+        limits = ["bar", "foo"]
+        result = scs.find_configured_limits(config_stanzas, limits)
         assert result == "set foo\nset bar\n"
 
     def test_limit_check(self, monkeypatch: MonkeyPatch):
