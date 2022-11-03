@@ -140,6 +140,9 @@ class SplitCopyGet:
             filesize_path,
         ) = self.validate_remote_path_get(self.remote_path)
 
+        # determine remote file size
+        file_size = self.remote_filesize(filesize_path)
+
         # determine the OS
         junos, evo, bsd_version, sshd_version = self.scs.which_os()
 
@@ -153,9 +156,6 @@ class SplitCopyGet:
         self.scs.remote_cleanup(
             remote_dir=remote_dir, remote_file=remote_file, silent=True
         )
-
-        # determine remote file size
-        file_size = self.remote_filesize(filesize_path)
 
         # determine optimal size for chunks
         split_size, executor = self.scs.file_split_size(
@@ -555,11 +555,16 @@ class SplitCopyGet:
             else:
                 file_size = int(stdout.split()[4])
         else:
+            err = "cannot determine remote file size"
             self.scs.close(
-                err_str="cannot determine remote file size",
+                err_str=err,
                 hard_close=self.hard_close,
             )
         logger.info(f"src file size is {file_size}")
+        if not file_size:
+            err = "remote file size is 0 bytes, nothing to copy"
+            self.scs.close(err_str=err, hard_close=self.hard_close)
+
         return file_size
 
     def remote_sha_get(self, remote_path):

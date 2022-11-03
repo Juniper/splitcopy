@@ -374,8 +374,9 @@ class SplitCopyShared:
             self.remote_cleanup()
         if config_rollback and self.command_list:
             self.limits_rollback()
-        print(f"\r{pad_string('closing device connection')}")
-        self.sshshell.close()
+        if self.sshshell:
+            print(f"\r{pad_string('closing device connection')}")
+            self.sshshell.close()
         if hard_close:
             try:
                 shutil.rmtree(self.local_tmpdir)

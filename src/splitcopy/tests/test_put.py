@@ -622,6 +622,15 @@ class TestSplitCopyPut:
         result = scput.determine_local_filesize()
         assert result == 10000
 
+    def test_determine_local_filesize_fail(self, monkeypatch: MonkeyPatch):
+        def getsize(path):
+            return 0
+
+        scput = SplitCopyPut()
+        monkeypatch.setattr("os.path.getsize", getsize)
+        with raises(SystemExit):
+            scput.determine_local_filesize()
+
     def test_local_sha_put_512(self, monkeypatch: MonkeyPatch):
         def isfile(path):
             result = False

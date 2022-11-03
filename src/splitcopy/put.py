@@ -99,6 +99,12 @@ class SplitCopyPut:
         # handle sigint gracefully on *nix
         signal.signal(signal.SIGINT, self.handlesigint)
 
+        # determine local file size
+        file_size = self.determine_local_filesize()
+
+        # confirm local storage is sufficient
+        self.scs.storage_check_local(file_size)
+
         # connect to host, open ssh transport
         self.sshshell, ssh_kwargs = self.scs.connect(SSHShell, **ssh_kwargs)
 
@@ -135,9 +141,6 @@ class SplitCopyPut:
             remote_dir=remote_dir, remote_file=remote_file, silent=True
         )
 
-        # determine local file size
-        file_size = self.determine_local_filesize()
-
         # determine optimal size for chunks
         split_size, executor = self.scs.file_split_size(
             file_size, sshd_version, bsd_version, evo, self.copy_proto
@@ -145,9 +148,6 @@ class SplitCopyPut:
 
         # confirm remote storage is sufficient
         self.scs.storage_check_remote(file_size, split_size, remote_dir)
-
-        # confirm local storage is sufficient
-        self.scs.storage_check_local(file_size)
 
         if not self.noverify:
             # get/create sha for local file
@@ -386,6 +386,9 @@ class SplitCopyPut:
         logger.info("entering determine_local_filesize()")
         file_size = os.path.getsize(self.local_path)
         logger.info(f"src file size is {file_size}")
+        if not file_size:
+            err = "local file size is 0 bytes, nothing to copy"
+            self.scs.close(err_str=err)
         return file_size
 
     def local_sha_put(self):

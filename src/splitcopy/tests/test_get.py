@@ -1081,6 +1081,39 @@ class TestSplitCopyGet:
             filesize_path = "/var/tmp/foo"
             scget.remote_filesize(filesize_path)
 
+    def test_remote_filesize_0bytes(self):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = "-rw------- 1 foo bar 0 Mar 29 06:49 /var/tmp/foo"
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.sshshell = MockSSHShell2()
+        scget.scs = MockSplitCopyShared()
+        with raises(SystemExit):
+            filesize_path = "/var/tmp/foo"
+            scget.remote_filesize(filesize_path)
+
+    def test_remote_filesize_0bytes_shell(self):
+        class MockSSHShell2(MockSSHShell):
+            def run(self, cmd):
+                result = True
+                stdout = (
+                    "foo@bar:~$ ls -l /var/tmp/foo\n"
+                    "-rw------- 1 foo bar 0 Mar 29 06:49 /var/tmp/foo\n"
+                    "foo@bar:~$"
+                )
+                return result, stdout
+
+        scget = SplitCopyGet()
+        scget.use_shell = True
+        scget.sshshell = MockSSHShell2()
+        scget.scs = MockSplitCopyShared()
+        with raises(SystemExit):
+            filesize_path = "/var/tmp/foo"
+            scget.remote_filesize(filesize_path)
+
     def test_remote_sha_get(self, monkeypatch: MonkeyPatch):
         def find_existing_sha_files(*args):
             return True, ""
