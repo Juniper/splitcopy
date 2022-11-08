@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args():
+    """parses arguments
+    :return args:
+    :type Namespace:
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "source", help="either <path> or user@<host>:<path> or <host>:<path>"
@@ -68,10 +72,35 @@ def parse_args():
     return args
 
 
-def parse_arg_as_local(arg_name):
-    local_file = None
-    local_dir = None
-    local_path = os.path.abspath(os.path.expanduser(arg_name))
+def windows_path(arg_name):
+    """determine if argument is a windows/UNC path
+    :param arg_name:
+    :type string:
+    :return bool:
+    """
+    result = False
+    if os.path.splitdrive(arg_name)[0]:
+        # arg is a windows drive/UNC sharepoint
+        # splitdrive() only returns a value at index 0 on windows systems
+        logger.debug(f"'{arg_name}' is a windows path")
+        result = True
+    return result
+
+
+def parse_src_arg_as_local(source):
+    """attempts to open path provided on local filesystem
+    :param arg_name:
+    :type string:
+    :return local_file:
+    :type string:
+    :return local_dir:
+    :type string:
+    :return local_path:
+    :type string:
+    """
+    local_file = ""
+    local_dir = ""
+    local_path = os.path.abspath(os.path.expanduser(source))
     with open(local_path, "rb"):
         local_file = os.path.basename(local_path)
         local_dir = os.path.dirname(local_path)
@@ -79,32 +108,55 @@ def parse_arg_as_local(arg_name):
 
 
 def parse_arg_as_remote(arg_name):
-    user = None
-    host = None
-    remote_path = None
-    if os.path.splitdrive(arg_name)[0]:
-        # arg is a windows drive/UNC sharepoint
-        # splitdrive() only returns a value at index 0 on windows systems
-        raise ValueError("local windows path")
-    elif re.match(r".+@.+:", arg_name):
+    """parses argument to determine if it's on a remote host.
+    If successful, returns the user, host and remote path.
+    :param arg_name:
+    :type string:
+    :return user:
+    :type string:
+    :return host:
+    :type string:
+    :return remote_path:
+    :type string:
+    """
+    user = ""
+    host = ""
+    remote_path = ""
+    # greedy match for @ and :
+    user_at_host = re.compile(r"(.+)@(.+):(.+)*")
+    # greedy match for :
+    host_only = re.compile(r"(.+):(.+)*")
+    # not impossible that remote_path could contain ':' or '@' char
+    # or username could contain '@' char
+    # above is too simplistic to deal with these edge use cases
+    if re.match(user_at_host, arg_name):
         # usernames ought to consist of [a-z_][a-z0-9_-]*[$]?
         # according to useradd man page, but the use of chars such as '@'
         # are not enforced which affects the pattern match
         # hostname does thankfully enforce '@' and ':' as invalid
-        split_str = arg_name.split("@")
-        user = "@".join(split_str[:-1])
-        host = split_str[-1].split(":")[0]
-        remote_path = split_str[-1].split(":")[-1]
-    elif re.match(r".+:", arg_name):
+        regex = re.match(user_at_host, arg_name)
+        user = regex.group(1)
+        host = regex.group(2)
+        remote_path = regex.group(3) or ""
+    elif re.match(host_only, arg_name):
         user = getpass.getuser()
-        host = arg_name.split(":")[0]
-        remote_path = arg_name.split(":")[1]
+        regex = re.match(host_only, arg_name)
+        host = regex.group(1)
+        remote_path = regex.group(2) or ""
     else:
-        raise ValueError
+        raise ValueError(
+            f"'{arg_name}' is not in the correct format "
+            "<user>@<host>:<path> or <host>:<path>"
+        )
     return user, host, remote_path
 
 
 def open_ssh_keyfile(path):
+    """tests whether the provided ssh keyfile can be read
+    :param path:
+    :type string:
+    :return bool:
+    """
     result = False
     ssh_key = os.path.abspath(os.path.expanduser(path))
     with open(ssh_key, "r") as key:
@@ -113,11 +165,111 @@ def open_ssh_keyfile(path):
 
 
 def handlesigint(sigint, stack):
+    """called upon sigINT, effectively suppresses KeyboardInterrupt
+    :param sigint:
+    :type int:
+    :param stack:
+    :type frame object:
+    :raises SystemExit:
+    :return None:
+    """
     raise SystemExit
 
 
+def process_args(source, target):
+    """determines the copy operation to perform, paths, username and host
+    :param source:
+    :type string:
+    :param target:
+    :type string:
+    :returns result:
+    :type dict:
+    :raises SystemExit:
+    """
+    user = ""
+    host = ""
+    remote_path = ""
+    local_dir = ""
+    local_file = ""
+    local_path = ""
+    copy_op = ""
+    source_in_remote_format = False
+    target_in_remote_format = False
+
+    try:
+        local_file, local_dir, local_path = parse_src_arg_as_local(source)
+    except FileNotFoundError:
+        # expected if this is a remote path
+        pass
+    except PermissionError:
+        raise SystemExit(
+            f"'{source}' exists, but file cannot be read due to a permissions error"
+        )
+    except IsADirectoryError:
+        raise SystemExit(f"'{source}' is a directory, not a file")
+
+    try:
+        user, host, remote_path = parse_arg_as_remote(source)
+        if not windows_path(source):
+            source_in_remote_format = True
+    except ValueError as err:
+        pass
+
+    try:
+        user, host, remote_path = parse_arg_as_remote(target)
+        if not windows_path(target):
+            target_in_remote_format = True
+    except ValueError as err:
+        pass
+
+    if source_in_remote_format and target_in_remote_format:
+        raise SystemExit(
+            f"both '{source}' and '{target}' are remote paths - "
+            "one path must be local, the other remote"
+        )
+    elif local_file and target_in_remote_format:
+        copy_op = "put"
+    elif local_file and not target_in_remote_format:
+        raise SystemExit(
+            f"file '{source}' found, remote path '{target}' is not in the correct format [user@]host:path"
+        )
+    elif not local_file and target_in_remote_format:
+        raise SystemExit(f"'{source}' file not found")
+    elif not local_file and not source_in_remote_format:
+        raise SystemExit(f"'{source}' file not found")
+    elif not local_file and source_in_remote_format and not remote_path:
+        raise SystemExit(f"'{source}' does not specify a filepath")
+    elif not local_file and source_in_remote_format and not target_in_remote_format:
+        copy_op = "get"
+
+    try:
+        host = socket.gethostbyname(host)
+    except socket.gaierror as exc:
+        raise SystemExit(
+            f"Could not resolve hostname '{host}', resolution failed"
+        ) from exc
+
+    result = {
+        "user": user,
+        "host": host,
+        "remote_path": remote_path,
+        "local_dir": local_dir,
+        "local_file": local_file,
+        "local_path": local_path,
+        "copy_op": copy_op,
+        "target": target,
+    }
+    return result
+
+
 def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
-    """body of script"""
+    """body of script
+    :param get_class:
+    :type class:
+    :param put_class:
+    :type class:
+    :return None:
+    """
     signal.signal(signal.SIGINT, handlesigint)
     start_time = datetime.datetime.now()
 
@@ -135,76 +287,18 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
         level=numeric_level,
     )
 
-    user = None
-    host = None
-    passwd = None
-    ssh_key = None
+    passwd = ""
+    ssh_key = ""
     ssh_port = 22
-    remote_path = None
-    local_dir = None
-    local_file = None
-    local_path = None
-    copy_proto = None
-    copy_op = ""
+    copy_proto = ""
     noverify = args.noverify
-    source = args.source
-    target = args.target
     use_curses = True
     overwrite = args.overwrite
-    target_remote = False
-    source_remote = False
+
     if args.nocurses:
         use_curses = False
 
-    # test whether source or target is a correctly formatted remote path
-
-    try:
-        user, host, remote_path = parse_arg_as_remote(target)
-        target_remote = True
-    except ValueError:
-        pass
-
-    try:
-        user, host, remote_path = parse_arg_as_remote(source)
-        source_remote = True
-    except ValueError:
-        pass
-
-    if target_remote and source_remote:
-        raise SystemExit(
-            "only one of the source or target arguments can "
-            "be a remote path using the format "
-            "<user>@<host>:<path> or <host>:<path>"
-        )
-    elif not target_remote and not source_remote:
-        raise SystemExit(
-            "neither of the source or target arguments "
-            "specify a remote path in the correct format "
-            "<user>@<host>:<path> or <host>:<path>"
-        )
-    elif target_remote:
-        try:
-            local_file, local_dir, local_path = parse_arg_as_local(source)
-        except FileNotFoundError:
-            raise SystemExit(f"'{source}' file does not exist")
-        except PermissionError:
-            raise SystemExit(
-                f"'{source}' exists, but file cannot be read due to a permissions error"
-            )
-        except IsADirectoryError:
-            raise SystemExit(f"'{source}' is a directory, not a file")
-        copy_op = "put"
-    else:
-        if not remote_path:
-            raise SystemExit(f"source argument '{source}' doesn't specify a file")
-        copy_op = "get"
-
-    try:
-        host = socket.gethostbyname(host)
-    except socket.gaierror:
-        raise SystemExit("hostname resolution failed")
-
-    if args.pwd:
+    if args.pwd is not None:
         passwd = args.pwd[0]
 
     if not args.scp:
@@ -216,49 +310,40 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
         ssh_key = args.ssh_key[0]
         try:
             open_ssh_keyfile(ssh_key)
-        except FileNotFoundError:
-            raise SystemExit(f"'{ssh_key}' file does not exist")
-        except PermissionError:
+        except FileNotFoundError as exc:
+            raise SystemExit(f"'{ssh_key}' file does not exist") from exc
+        except PermissionError as exc:
             raise SystemExit(
                 f"'{ssh_key}' exists, but file cannot be read due to a permissions error"
-            )
-        except IsADirectoryError:
-            raise SystemExit(f"'{ssh_key}' is a directory, not a file")
+            ) from exc
+        except IsADirectoryError as exc:
+            raise SystemExit(f"'{ssh_key}' is a directory, not a file") from exc
 
     if args.ssh_port is not None:
         try:
             ssh_port = int(args.ssh_port[0])
-        except ValueError:
-            raise SystemExit("ssh_port must be an integer")
+        except ValueError as exc:
+            raise SystemExit("ssh_port must be an integer") from exc
 
     split_timeout = 120
     if args.split_timeout is not None:
         try:
             split_timeout = int(args.split_timeout[0])
-        except ValueError:
-            raise SystemExit("split_timeout must be an integer")
+        except ValueError as exc:
+            raise SystemExit("split_timeout must be an integer") from exc
 
-    kwargs = {
-        "user": user,
-        "host": host,
-        "passwd": passwd,
-        "ssh_key": ssh_key,
-        "ssh_port": ssh_port,
-        "remote_path": remote_path,
-        "local_dir": local_dir,
-        "local_file": local_file,
-        "local_path": local_path,
-        "copy_proto": copy_proto,
-        "copy_op": copy_op,
-        "noverify": noverify,
-        "split_timeout": split_timeout,
-        "use_curses": use_curses,
-        "target": target,
-        "overwrite": overwrite,
-    }
+    kwargs = process_args(args.source, args.target)
+    kwargs["passwd"] = passwd
+    kwargs["ssh_key"] = ssh_key
+    kwargs["ssh_port"] = ssh_port
+    kwargs["copy_proto"] = copy_proto
+    kwargs["noverify"] = noverify
+    kwargs["split_timeout"] = split_timeout
+    kwargs["use_curses"] = use_curses
+    kwargs["overwrite"] = overwrite
     logger.info(kwargs)
 
-    if copy_op == "get":
+    if kwargs["copy_op"] == "get":
         splitcopyget = get_class(**kwargs)
         loop_start, loop_end = splitcopyget.get()
     else:
@@ -270,7 +355,4 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
     time_delta = end_time - start_time
     transfer_delta = loop_end - loop_start
     print(f"data transfer = {transfer_delta}\ntotal runtime = {time_delta}")
-
-
-if __name__ == "__main__":
-    main()
+    return True
