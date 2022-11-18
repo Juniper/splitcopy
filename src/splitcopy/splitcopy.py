@@ -268,7 +268,7 @@ def main(get_class=SplitCopyGet, put_class=SplitCopyPut):
     :type class:
     :param put_class:
     :type class:
-    :return None:
+    :return bool:
     """
     signal.signal(signal.SIGINT, handlesigint)
     start_time = datetime.datetime.now()
