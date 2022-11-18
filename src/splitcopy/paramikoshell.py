@@ -454,42 +454,6 @@ class SSHShell:
         except AttributeError:
             pass
 
-    def restart_shell(self):
-        """closes then re-opens the channel using the existing transport
-        then requests a new pty and interactive shell
-        :return None:
-        """
-        if self._chan is not None:
-            self._chan.close()
-        self.channel_open()
-        self.invoke_shell()
-        self.run("start shell", exitcode=False)
-
-    def run(self, cmd, timeout=30, exitcode=True, combine=False):
-        """wrapper around functions that send a cmd to a remote host.
-        which function gets called depends on whether an interactive shell is in use.
-        if exitcode is True will check its exit status
-        :param cmd: cmd to run on remote host
-        :type string:
-        :param timeout: amount of time before timeout is raised
-        :type float:
-        :param exitcode: toggles whether to check for exit status or not
-        :type bool:
-        :return result: whether successful or not
-        :type bool:
-        :return stdout: the output of the command
-        :type string:
-        """
-        result = False
-        stdout = ""
-        logger.debug(cmd)
-        if self.use_shell:
-            result, stdout = self.shell_cmd(cmd, timeout, exitcode)
-        else:
-            result, stdout = self.exec_cmd(cmd, timeout, combine)
-        logger.debug(result)
-        return result, stdout
-
     def shell_cmd(self, cmd, timeout, exitcode):
         """sends a cmd to remote host over the existing channel and shell
         if exitcode is True will check its exit status
@@ -508,18 +472,15 @@ class SSHShell:
         """
         result = False
         stdout = ""
-        try:
-            self.write(cmd)
-            stdout = self.stdout_read(timeout)
-            logger.debug(stdout)
-            if exitcode:
-                self.write("echo $?")
-                rc = self.stdout_read(timeout)
-                if re.search(_EXIT_CODE, rc):
-                    result = True
-        except TimeoutError:
-            stdout = f"timeout running '{cmd}'"
-            self.restart_shell()
+        self.write(cmd)
+        stdout = self.stdout_read(timeout)
+        logger.debug(stdout)
+        if exitcode:
+            self.write("echo $?")
+            rc = self.stdout_read(timeout)
+            if re.search(_EXIT_CODE, rc):
+                result = True
+
         return result, stdout
 
     def exec_cmd(self, cmd, timeout, combine):
@@ -541,24 +502,20 @@ class SSHShell:
         exit_code = None
         stdout = ""
         stdout_bytes = []
-        try:
-            chan = self._transport.open_session(timeout=timeout)
-            chan.exec_command(cmd)
-            if combine:
-                chan.set_combine_stderr(True)
+        chan = self._transport.open_session(timeout=30)
+        chan.settimeout(timeout)
+        chan.exec_command(cmd)
+        if combine:
+            chan.set_combine_stderr(True)
+        out_bytes = chan.recv(_RECVSZ)
+        while out_bytes:
+            stdout_bytes.append(out_bytes)
             out_bytes = chan.recv(_RECVSZ)
-            while out_bytes:
-                stdout_bytes.append(out_bytes)
-                out_bytes = chan.recv(_RECVSZ)
-            stdout = b"".join(stdout_bytes).rstrip().decode()
-            while exit_code is None:
-                if chan.exit_status_ready():
-                    exit_code = chan.recv_exit_status()
-            chan.close()
-        except SSHException as err:
-            stdout = f"ssh exception '{err}' raised while running '{cmd}'"
-        except socket.timeout:
-            stdout = f"socket timeout raised while running '{cmd}'"
+        stdout = b"".join(stdout_bytes).rstrip().decode()
+        while exit_code is None:
+            if chan.exit_status_ready():
+                exit_code = chan.recv_exit_status()
+        chan.close()
         if exit_code == 0:
             result = True
         return result, stdout
