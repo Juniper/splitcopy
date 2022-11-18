@@ -63,7 +63,6 @@ class SplitCopyPut:
         self.overwrite = kwargs.get("overwrite")
         self.scs = SplitCopyShared(**kwargs)
         self.mute = False
-        self.hard_close = False
         self.sshshell = None
         self.progress = Progress()
         self.use_shell = False
@@ -78,7 +77,7 @@ class SplitCopyPut:
         logger.debug(f"signal {sigint} received, stack:\n{stack}")
         self.mute = True
         self.progress.stop_progress()
-        self.scs.close(hard_close=self.hard_close)
+        self.scs.close()
 
     def put(self):
         """copies file from local host to remote host
@@ -111,15 +110,7 @@ class SplitCopyPut:
         # is this a juniper cli?
         if self.scs.juniper_cli_check():
             self.use_shell = True
-            # in order to drop into shell from cli mode, a pty and interactive shell are required
-            # request a channel
-            self.sshshell.channel_open()
-            # request a pty and an interactive shell session
-            self.sshshell.invoke_shell()
-            # remove the welcome message from the socket
-            self.sshshell.stdout_read(timeout=30)
-            # enter shell mode
-            self.sshshell.run("start shell", exitcode=False)
+            self.scs.enter_shell()
 
         # ensure dest path is valid
         remote_file, remote_dir = self.validate_remote_path_put()
@@ -171,7 +162,7 @@ class SplitCopyPut:
             print("starting transfer...")
             self.progress.start_progress(self.use_curses)
             # copy files to remote host
-            self.hard_close = True
+            self.scs.hard_close = True
             loop_start = datetime.datetime.now()
             loop = asyncio.new_event_loop()
             tasks = []
@@ -195,11 +186,10 @@ class SplitCopyPut:
                 self.progress.stop_progress()
                 self.scs.close(
                     err_str="\nan error occurred while copying the files to the remote host",
-                    hard_close=self.hard_close,
                 )
             finally:
                 loop.close()
-            self.hard_close = False
+            self.scs.hard_close = False
             while self.progress.totals["percent_done"] != 100:
                 time.sleep(0.1)
             self.progress.stop_progress()
@@ -245,9 +235,7 @@ class SplitCopyPut:
             if fnmatch.fnmatch(chunk, f"{self.local_file}*"):
                 chunks.append([chunk, os.stat(chunk).st_size])
         if not chunks:
-            self.scs.close(
-                err_str="file split operation failed", hard_close=self.hard_close
-            )
+            self.scs.close(err_str="file split operation failed")
         # sort alphabetically
         chunks = sorted(chunks)
         logger.info(f"# of chunks = {len(chunks)}")
@@ -266,14 +254,13 @@ class SplitCopyPut:
         except ValueError as err:
             self.scs.close(
                 err_str=err,
-                hard_close=self.hard_close,
             )
 
-        if self.sshshell.run(f"test -d {remote_path}")[0]:
+        if self.scs.ssh_cmd(f"test -d {remote_path}")[0]:
             # target path provided is a directory
             remote_file = self.local_file
             remote_dir = remote_path.rstrip("/")
-        elif self.sshshell.run(f"test -d {os.path.dirname(remote_path)}")[0]:
+        elif self.scs.ssh_cmd(f"test -d {os.path.dirname(remote_path)}")[0]:
             if os.path.basename(remote_path) != self.local_file:
                 # target path provided was a full path, file name does not match src
                 # honour the change of file name
@@ -285,7 +272,6 @@ class SplitCopyPut:
         else:
             self.scs.close(
                 err_str=f"target path {remote_path} on remote host isn't valid",
-                hard_close=self.hard_close,
             )
         logger.debug(f"remote_dir now = {remote_dir}, remote_file now = {remote_file}")
         # update SplitCopyShared with these values
@@ -308,7 +294,7 @@ class SplitCopyPut:
             or re.match(r"\.\/", remote_path)
             or not remote_path
         ):
-            result, stdout = self.sshshell.run("pwd")
+            result, stdout = self.scs.ssh_cmd("pwd")
             if result:
                 if self.use_shell:
                     pwd = stdout.split("\n")[1].rstrip()
@@ -333,7 +319,7 @@ class SplitCopyPut:
         """
         logger.info("entering path_startswith_tilda()")
         if re.match(r"~", remote_path):
-            result, stdout = self.sshshell.run(f"ls -d {remote_path}")
+            result, stdout = self.scs.ssh_cmd(f"ls -d {remote_path}")
             if result:
                 if self.use_shell:
                     remote_path = stdout.split("\n")[1].rstrip()
@@ -354,7 +340,7 @@ class SplitCopyPut:
         :type bool:
         """
         logger.info("entering check_target_exists()")
-        result, stdout = self.sshshell.run(f"test -e {remote_dir}/{remote_file}")
+        result, stdout = self.scs.ssh_cmd(f"test -e {remote_dir}/{remote_file}")
         return result
 
     def delete_target_remote(self, remote_dir, remote_file):
@@ -370,7 +356,7 @@ class SplitCopyPut:
         logger.info("entering delete_target_remote()")
         if self.check_target_exists(remote_dir, remote_file):
             if self.overwrite:
-                result, stdout = self.sshshell.run(f"rm -f {remote_dir}/{remote_file}")
+                result, stdout = self.scs.ssh_cmd(f"rm -f {remote_dir}/{remote_file}")
                 if not result:
                     err = "remote file already exists, and could not be deleted"
                     self.scs.close(err_str=err)
@@ -462,7 +448,7 @@ class SplitCopyPut:
                         sfx_2 = chr(ord(sfx_2) + 1)
         except Exception as error:
             err = f"an error occurred while splitting the file, the error was:\n{error}"
-            self.scs.close(err_str=err, hard_close=self.hard_close)
+            self.scs.close(err_str=err)
 
     def join_files_remote(
         self, scp_lib, chunks, remote_dir, remote_file, remote_tmpdir
@@ -499,7 +485,7 @@ class SplitCopyPut:
                 transport = self.sshshell._transport
                 with scp_lib(transport) as scpclient:
                     scpclient.put("join.sh", f"{remote_tmpdir}/join.sh")
-            result, stdout = self.sshshell.run(
+            result, stdout = self.scs.ssh_cmd(
                 f"sh {remote_tmpdir}/join.sh", timeout=600
             )
         except Exception as err:
@@ -509,7 +495,6 @@ class SplitCopyPut:
                     f"{err.__class__.__name__} while combining file chunks on "
                     f"remote host: {str(err)}"
                 ),
-                hard_close=self.hard_close,
             )
 
         if not result:
@@ -517,8 +502,8 @@ class SplitCopyPut:
                 err_str=(
                     "failed to combine chunks on remote host. " f"error was:\n{stdout}"
                 ),
-                hard_close=self.hard_close,
             )
+        return result
 
     def compare_file_sizes(self, file_size, remote_dir, remote_file):
         """obtains the newly combined file size, compares it to the source files size
@@ -531,14 +516,13 @@ class SplitCopyPut:
         :return None:
         """
         logger.info("entering compare_file_sizes()")
-        result, stdout = self.sshshell.run(f"ls -l {remote_dir}/{remote_file}")
+        result, stdout = self.scs.ssh_cmd(f"ls -l {remote_dir}/{remote_file}")
         if not result:
             self.scs.close(
                 err_str=(
                     f"file {self.host}:{remote_dir}/{remote_file} not found! please retry"
                 ),
                 config_rollback=False,
-                hard_close=self.hard_close,
             )
         if self.use_shell:
             combined_file_size = int(stdout.split("\r\n")[1].split()[4])
@@ -552,7 +536,6 @@ class SplitCopyPut:
                     f"is {file_size}. Unexpected mismatch in file size. Please retry"
                 ),
                 config_rollback=False,
-                hard_close=self.hard_close,
             )
         print("local and remote file sizes match")
 
@@ -578,7 +561,7 @@ class SplitCopyPut:
         else:
             cmd = f"{sha_bin}"
 
-        result, stdout = self.sshshell.run(
+        result, stdout = self.scs.ssh_cmd(
             f"{cmd} {remote_dir}/{remote_file}", timeout=300
         )
         if not result:
@@ -598,7 +581,6 @@ class SplitCopyPut:
             self.scs.close(
                 err_str="failed to obtain remote sha hash to compare against",
                 config_rollback=False,
-                hard_close=self.hard_close,
             )
         logger.info(f"remote sha = {remote_sha}")
         if sha_hash[sha_len] == remote_sha:
@@ -613,7 +595,6 @@ class SplitCopyPut:
                     ", but the local and remote sha do not match - please retry"
                 ),
                 config_rollback=False,
-                hard_close=self.hard_close,
             )
 
     def put_files(self, ftp_lib, ssh_lib, scp_lib, chunk, remote_tmpdir, ssh_kwargs):
