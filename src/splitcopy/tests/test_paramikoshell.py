@@ -35,6 +35,9 @@ class MockChannel:
     def close(self, *args):
         pass
 
+    def settimeout(self, *args):
+        pass
+
 
 class TestParamikoShell:
     def test_context_manager(self, monkeypatch: MonkeyPatch):
@@ -840,46 +843,6 @@ class TestParamikoShell:
         result = paramikoshell.close_transport()
         assert result == None
 
-    def test_restart_shell(self, monkeypatch: MonkeyPatch):
-        class MockChannel:
-            def __init__(self):
-                pass
-
-            def close(self):
-                pass
-
-        def channel_open():
-            pass
-
-        def invoke_shell():
-            pass
-
-        paramikoshell = SSHShell()
-        paramikoshell._chan = MockChannel()
-        monkeypatch.setattr(paramikoshell, "channel_open", channel_open)
-        monkeypatch.setattr(paramikoshell, "invoke_shell", invoke_shell)
-        result = paramikoshell.restart_shell()
-        assert result == None
-
-    def test_run_shell(self, monkeypatch: MonkeyPatch):
-        def shell_cmd(*args):
-            return (True, "somestring")
-
-        paramikoshell = SSHShell()
-        paramikoshell.use_shell = True
-        monkeypatch.setattr(paramikoshell, "shell_cmd", shell_cmd)
-        result = paramikoshell.run("cmd")
-        assert result == (True, "somestring")
-
-    def test_run_exec(self, monkeypatch: MonkeyPatch):
-        def exec_cmd(*args):
-            return (True, "somestring")
-
-        paramikoshell = SSHShell()
-        monkeypatch.setattr(paramikoshell, "exec_cmd", exec_cmd)
-        result = paramikoshell.run("cmd")
-        assert result == (True, "somestring")
-
     def test_shell_cmd_timeout(self, monkeypatch: MonkeyPatch):
         def write(string):
             pass
@@ -887,15 +850,11 @@ class TestParamikoShell:
         def stdout_read(timeout):
             raise TimeoutError
 
-        def restart_shell():
-            pass
-
         paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "write", write)
         monkeypatch.setattr(paramikoshell, "stdout_read", stdout_read)
-        monkeypatch.setattr(paramikoshell, "restart_shell", restart_shell)
-        result = paramikoshell.shell_cmd("cmd", 30, True)
-        assert result == (False, "timeout running 'cmd'")
+        with raises(TimeoutError):
+            paramikoshell.shell_cmd("cmd", 30, True)
 
     def test_shell_cmd(self, monkeypatch: MonkeyPatch):
         def write(string):
@@ -946,8 +905,8 @@ class TestParamikoShell:
 
         paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
-        result = paramikoshell.exec_cmd("foo", timeout=30, combine=True)
-        assert result == (False, "ssh exception '' raised while running 'foo'")
+        with raises(SSHException):
+            paramikoshell.exec_cmd("foo", timeout=30, combine=True)
 
     def test_exec_cmd_err_socket(self, monkeypatch: MonkeyPatch):
         class MockChannel2(MockChannel):
@@ -960,5 +919,5 @@ class TestParamikoShell:
 
         paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
-        result = paramikoshell.exec_cmd("foo", timeout=30, combine=True)
-        assert result == (False, "socket timeout raised while running 'foo'")
+        with raises(TimeoutError):
+            paramikoshell.exec_cmd("foo", timeout=30, combine=True)

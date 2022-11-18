@@ -79,18 +79,6 @@ class MockSSHShell:
     def socket_open(self):
         self.socket = True
 
-    def channel_open(self):
-        pass
-
-    def invoke_shell(self):
-        pass
-
-    def stdout_read(self, **kwargs):
-        pass
-
-    def run(self, *args, **kwargs):
-        pass
-
     def transport_open(self):
         self._transport = True
 
@@ -181,6 +169,12 @@ class MockSplitCopyShared:
     @contextmanager
     def tempdir(*args):
         yield
+
+    def ssh_cmd(*args, **kwargs):
+        return (True, "")
+
+    def enter_shell(self):
+        return True
 
 
 class MockHash:
@@ -383,17 +377,12 @@ class TestSplitCopyPut:
     def test_validate_remote_path_put_no_remote_path(self, monkeypatch: MonkeyPatch):
         scput = SplitCopyPut()
 
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
-                return (True, "")
-
         def expand_remote_path(*args):
             return "/homes/foobar"
 
         def path_startswith_tilda(*args):
             return "/homes/foobar"
 
-        scput.sshshell = MockSSHShell2
         scput.scs = MockSplitCopyShared
         monkeypatch.setattr(scput, "expand_remote_path", expand_remote_path)
         monkeypatch.setattr(scput, "path_startswith_tilda", path_startswith_tilda)
@@ -404,37 +393,32 @@ class TestSplitCopyPut:
 
     def test_validate_remote_path_put_isdir(self):
         scput = SplitCopyPut()
-
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
-                return (True, "")
-
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared
         scput.local_file = "foo"
         scput.remote_path = "/var/tmp"
         result = scput.validate_remote_path_put()
         assert result == ("foo", "/var/tmp")
 
     def test_validate_remote_path_existingfile_basename_match(self):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(cmd):
                 if cmd == "test -d /var/tmp/foo":
                     return False, ""
                 else:
                     return True, ""
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared2
         scput.local_file = "foo"
         scput.remote_path = "/var/tmp/foo"
         result = scput.validate_remote_path_put()
         assert result == ("foo", "/var/tmp")
 
     def test_validate_remote_path_put_newfile_basename_nomatch(self):
-        class MockSSHShell2(MockSSHShell):
+        class MockSplitCopyShared2(MockSplitCopyShared):
             self.instance = 0
 
-            def run(cmd):
+            def ssh_cmd(cmd):
                 if re.match(r"test -d", cmd) and not self.instance:
                     self.instance += 1
                     return False, ""
@@ -442,15 +426,15 @@ class TestSplitCopyPut:
                     return True, ""
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared2
         scput.local_file = "foo"
         scput.remote_path = "/var/tmp/bar"
         result = scput.validate_remote_path_put()
         assert result == ("bar", "/var/tmp")
 
     def test_validate_remote_path_put_fail(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 return (False, "")
 
         def dirname(path):
@@ -458,8 +442,7 @@ class TestSplitCopyPut:
 
         monkeypatch.setattr("os.path.dirname", dirname)
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
-        scput.scs = MockSplitCopyShared()
+        scput.scs = MockSplitCopyShared2()
         scput.local_file = "foo"
         scput.remote_path = "/var/tmp/foo"
         with raises(SystemExit):
@@ -476,90 +459,86 @@ class TestSplitCopyPut:
             scput.validate_remote_path_put()
 
     def test_expand_remote_path_shell(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 stdout = "foo@bar ~ % pwd\n/homes/foo\nfoo@bar ~ % \n"
                 return (True, stdout)
 
         scput = SplitCopyPut()
         scput.use_shell = True
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared2()
         result = scput.expand_remote_path("./tmp")
         assert result == "/homes/foo/tmp"
 
     def test_expand_remote_path_exec(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 stdout = "/homes/foo"
                 return (True, stdout)
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared2()
         result = scput.expand_remote_path("./tmp")
         assert result == "/homes/foo/tmp"
 
     def test_expand_remote_path_fail(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 return (False, "")
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared2()
         with raises(ValueError):
             scput.expand_remote_path("./tmp")
 
     def test_path_startswith_tilda_shell(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 stdout = "foo@bar ~ % ls -d ~/tmp\n/homes/foo/tmp\nfoo@bar ~ % \n"
                 return (True, stdout)
 
         scput = SplitCopyPut()
         scput.use_shell = True
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared2()
         result = scput.path_startswith_tilda("~/tmp")
         assert result == "/homes/foo/tmp"
 
     def test_path_startswith_tilda_exec(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 stdout = "/homes/foo/tmp"
                 return (True, stdout)
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared2()
         result = scput.path_startswith_tilda("~/tmp")
         assert result == "/homes/foo/tmp"
 
     def test_path_startswith_tilda_fail(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 return (False, "")
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared2()
         with raises(ValueError):
             scput.path_startswith_tilda("~/tmp")
 
     def test_check_target_exists(self):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
-                return (True, "")
-
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared()
         remote_dir = "/var/tmp"
         remote_file = "foobar"
         result = scput.check_target_exists(remote_dir, remote_file)
         assert result == True
 
     def test_check_target_exists_fail(self):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 return (False, "")
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2
+        scput.scs = MockSplitCopyShared2()
         remote_dir = "/var/tmp"
         remote_file = "foobar"
         result = scput.check_target_exists(remote_dir, remote_file)
@@ -578,8 +557,8 @@ class TestSplitCopyPut:
             scput.delete_target_remote(remote_dir, remote_file)
 
     def test_delete_target_remote_overwrite_fail(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 return (False, "")
 
         def check_target_exists(*args):
@@ -588,25 +567,19 @@ class TestSplitCopyPut:
         scput = SplitCopyPut()
         scput.overwrite = True
         monkeypatch.setattr(scput, "check_target_exists", check_target_exists)
-        scput.sshshell = MockSSHShell2
-        scput.scs = MockSplitCopyShared()
+        scput.scs = MockSplitCopyShared2()
         remote_dir = "/var/tmp"
         remote_file = "foobar"
         with raises(SystemExit):
             scput.delete_target_remote(remote_dir, remote_file)
 
     def test_delete_target_remote_overwrite_nofail(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(cmd):
-                return (True, "")
-
         def check_target_exists(*args):
             return True
 
         scput = SplitCopyPut()
         scput.overwrite = True
         monkeypatch.setattr(scput, "check_target_exists", check_target_exists)
-        scput.sshshell = MockSSHShell2
         scput.scs = MockSplitCopyShared()
         remote_dir = "/var/tmp"
         remote_file = "foobar"
@@ -618,6 +591,7 @@ class TestSplitCopyPut:
             return 10000
 
         scput = SplitCopyPut()
+        scput.scs = MockSplitCopyShared()
         monkeypatch.setattr("os.path.getsize", getsize)
         result = scput.determine_local_filesize()
         assert result == 10000
@@ -627,6 +601,7 @@ class TestSplitCopyPut:
             return 0
 
         scput = SplitCopyPut()
+        scput.scs = MockSplitCopyShared()
         monkeypatch.setattr("os.path.getsize", getsize)
         with raises(SystemExit):
             scput.determine_local_filesize()
@@ -765,14 +740,10 @@ class TestSplitCopyPut:
             scput.split_file_local(file_size, split_size)
 
     def test_join_files_remote(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout):
-                return True, ""
-
         chunks = [["somefile_aa", 10000], ["somefile_ab", 10000]]
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2()
         scput.scs = MockSplitCopyShared()
+        scput.sshshell = MockSSHShell()
         remote_dir = "/var/tmp/foo"
         remote_file = "somefile"
         remote_tmpdir = "/var/tmp/000"
@@ -780,17 +751,17 @@ class TestSplitCopyPut:
         result = scput.join_files_remote(
             MockSCPClient, chunks, remote_dir, remote_file, remote_tmpdir
         )
-        assert result == None
+        assert result == True
 
     def test_join_files_remote_fail(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 return False, ""
 
         chunks = [["somefile_aa", 10000], ["somefile_ab", 10000]]
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2()
-        scput.scs = MockSplitCopyShared()
+        scput.sshshell = MockSSHShell()
+        scput.scs = MockSplitCopyShared2()
         remote_dir = "/var/tmp/foo"
         remote_file = "somefile"
         remote_tmpdir = "/var/tmp/000"
@@ -805,14 +776,14 @@ class TestSplitCopyPut:
             )
 
     def test_join_files_remote_exception(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 raise SSHException
 
         chunks = [["somefile_aa", 10000], ["somefile_ab", 10000]]
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2()
-        scput.scs = MockSplitCopyShared()
+        scput.sshshell = MockSSHShell()
+        scput.scs = MockSplitCopyShared2()
         remote_dir = "/var/tmp/foo"
         remote_file = "somefile"
         remote_tmpdir = "/var/tmp/000"
@@ -827,8 +798,8 @@ class TestSplitCopyPut:
             )
 
     def test_compare_file_sizes_shell(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout=30):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 stdout = (
                     b"foo@bar ~ % ls -l /var/tmp/foo\r\r\n"
                     b"-rw-r--r--  1 foo  bar  100000 19 Dec  2019 /var/tmp/foo\r\n"
@@ -838,41 +809,40 @@ class TestSplitCopyPut:
 
         scput = SplitCopyPut()
         scput.use_shell = True
-        scput.sshshell = MockSSHShell2()
+        scput.scs = MockSplitCopyShared2()
         remote_dir = "/var/tmp"
         remote_file = "foobar"
         result = scput.compare_file_sizes(100000, remote_dir, remote_file)
         assert result == None
 
     def test_compare_file_sizes_exec(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout=30):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 stdout = "-rw-r--r--  1 foo  bar  100000 19 Dec  2019 /var/tmp/foo"
                 return True, stdout
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2()
+        scput.scs = MockSplitCopyShared2()
         remote_dir = "/var/tmp"
         remote_file = "foobar"
         result = scput.compare_file_sizes(100000, remote_dir, remote_file)
         assert result == None
 
     def test_compare_file_sizes_cmd_fail(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout=30):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 return False, ""
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2()
-        scput.scs = MockSplitCopyShared()
+        scput.scs = MockSplitCopyShared2()
         with raises(SystemExit):
             remote_dir = "/var/tmp"
             remote_file = "foobar"
             result = scput.compare_file_sizes(100000, remote_dir, remote_file)
 
     def test_compare_file_sizes_mismatch(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout=30):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 stdout = (
                     b"foo@bar ~ % ls -l /var/tmp/foo\r\r\n"
                     b"-rw-r--r--  1 foo  bar  400000 19 Dec  2019 /var/tmp/foo\r\n"
@@ -882,16 +852,15 @@ class TestSplitCopyPut:
 
         scput = SplitCopyPut()
         scput.use_shell = True
-        scput.sshshell = MockSSHShell2()
-        scput.scs = MockSplitCopyShared()
+        scput.scs = MockSplitCopyShared2()
         with raises(SystemExit):
             remote_dir = "/var/tmp"
             remote_file = "foobar"
             result = scput.compare_file_sizes(100000, remote_dir, remote_file)
 
     def test_remote_sha_put(self, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout=30):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 stdout = (
                     "foo@bar ~ % sha224sum -a 224 /var/tmp/foo\n"
                     "d2a90f1c9edd2e9771306d8c8f4a4fc802181b973ee8167fcaff98f4 "
@@ -901,8 +870,7 @@ class TestSplitCopyPut:
                 return True, stdout
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2()
-        scput.scs = MockSplitCopyShared()
+        scput.scs = MockSplitCopyShared2()
         sha_bin = "sha224sum"
         sha_len = 224
         sha_hash = {224: "d2a90f1c9edd2e9771306d8c8f4a4fc802181b973ee8167fcaff98f4"}
@@ -915,13 +883,12 @@ class TestSplitCopyPut:
         assert expected == result
 
     def test_remote_sha_put_cmd_fail(self, capsys, monkeypatch: MonkeyPatch):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout=30):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 return False, ""
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2()
-        scput.scs = MockSplitCopyShared()
+        scput.scs = MockSplitCopyShared2()
         sha_bin = "shasum"
         sha_len = 224
         sha_hash = {224: "d2a90f1c9edd2e9771306d8c8f4a4fc802181b973ee8167fcaff98f4"}
@@ -934,12 +901,7 @@ class TestSplitCopyPut:
         assert re.search(r"remote sha hash generation failed", captured.out)
 
     def test_remote_sha_put_hash_fail(self):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout=30):
-                return True, ""
-
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2()
         scput.scs = MockSplitCopyShared()
         sha_bin = "shasum"
         sha_len = 224
@@ -950,8 +912,8 @@ class TestSplitCopyPut:
             scput.remote_sha_put(sha_bin, sha_len, sha_hash, remote_dir, remote_file)
 
     def test_remote_sha_put_hash_mismatch(self):
-        class MockSSHShell2(MockSSHShell):
-            def run(self, cmd, timeout=30):
+        class MockSplitCopyShared2(MockSplitCopyShared):
+            def ssh_cmd(*args, **kwargs):
                 stdout = (
                     "foo@bar ~ % shasum -a 224 /var/tmp/foo\n"
                     "d2a90f1c9edd2e9771306d8c8f4a4fc802181b973ee8167fceff98f4 "
@@ -961,8 +923,7 @@ class TestSplitCopyPut:
                 return True, stdout
 
         scput = SplitCopyPut()
-        scput.sshshell = MockSSHShell2()
-        scput.scs = MockSplitCopyShared()
+        scput.scs = MockSplitCopyShared2()
         sha_bin = "shasum"
         sha_len = 224
         sha_hash = {224: "d2a90f1c9edd2e9771306d8c8f4a4fc802181b973ee8167fcaff98f4"}
