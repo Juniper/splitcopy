@@ -67,6 +67,7 @@ class SplitCopyShared:
         self.remote_tmpdir = None
         self.sshshell = None
         self.use_shell = False
+        self.hard_close = False
 
     def connect(self, ssh_lib, **ssh_kwargs):
         """open an ssh session to a remote host
@@ -177,7 +178,7 @@ class SplitCopyShared:
         :returns bool:
         """
         logger.info("entering juniper_cli_check()")
-        result, stdout = self.sshshell.run("uname")
+        result, stdout = self.ssh_cmd("uname")
         if result and stdout == "\nerror: unknown command: uname":
             # this is junos or evo CLI. exit code is always 0.
             self.use_shell = True
@@ -205,7 +206,7 @@ class SplitCopyShared:
         evo = False
         bsd_version = float()
         sshd_version = float()
-        result, stdout = self.sshshell.run("uname")
+        result, stdout = self.ssh_cmd("uname")
         if not result:
             err = "cmd 'uname' failed on remote host, it must be *nix based"
             self.close(err_str=err)
@@ -237,7 +238,7 @@ class SplitCopyShared:
         :type bool:
         """
         logger.info("entering evo_os()")
-        result, stdout = self.sshshell.run("test -e /usr/sbin/evo-pfemand")
+        result, stdout = self.ssh_cmd("test -e /usr/sbin/evo-pfemand")
         return result
 
     def junos_os(self):
@@ -246,7 +247,7 @@ class SplitCopyShared:
         :type bool:
         """
         logger.info("entering junos_os()")
-        result, stdout = self.sshshell.run("uname -i | egrep 'JUNIPER|JNPR'")
+        result, stdout = self.ssh_cmd("uname -i | egrep 'JUNIPER|JNPR'")
         return result
 
     def which_bsd(self):
@@ -255,7 +256,7 @@ class SplitCopyShared:
         :type float:
         """
         logger.info("entering which_bsd()")
-        result, stdout = self.sshshell.run("uname -r")
+        result, stdout = self.ssh_cmd("uname -r")
         if not result:
             self.close(err_str="failed to determine remote bsd version")
         if self.use_shell:
@@ -271,7 +272,7 @@ class SplitCopyShared:
         :type float
         """
         logger.info("entering which_sshd()")
-        result, stdout = self.sshshell.run("sshd -v", exitcode=False, combine=True)
+        result, stdout = self.ssh_cmd("sshd -v", exitcode=False, combine=True)
         if self.use_shell:
             if not re.search(r"OpenSSH_", stdout):
                 self.close(err_str="failed to determine remote openssh version")
@@ -298,7 +299,7 @@ class SplitCopyShared:
                 req_bins = "dd ls df rm"
             else:
                 req_bins = "cat ls df rm"
-            result, stdout = self.sshshell.run(f"which {req_bins}")
+            result, stdout = self.ssh_cmd(f"which {req_bins}")
             if not result:
                 self.close(
                     err_str=(
@@ -339,7 +340,7 @@ class SplitCopyShared:
         logger.info(sha_bins)
 
         for req_bin in sha_bins:
-            result, stdout = self.sshshell.run(f"which {req_bin[0]}")
+            result, stdout = self.ssh_cmd(f"which {req_bin[0]}")
             if result:
                 sha_bin = req_bin[0]
                 sha_len = req_bin[1]
@@ -353,7 +354,7 @@ class SplitCopyShared:
             )
         return sha_bin, sha_len
 
-    def close(self, err_str=None, config_rollback=True, hard_close=False):
+    def close(self, err_str=None, config_rollback=True):
         """called when we want to exit the script
         attempts to delete the remote temp directory and close the TCP session
         If hard_close == False, contextmanager will rm the local temp dir
@@ -362,22 +363,27 @@ class SplitCopyShared:
         :type: string:
         :param config_rollback:
         :type bool:
-        :param hard_close:
-        :type bool:
         :raises SystemExit: terminates the script gracefully
         :raises os._exit: terminates the script immediately (even asyncio loop)
         """
         logger.info("entering close()")
         if err_str:
             print(err_str)
-        if self.rm_remote_tmp:
-            self.remote_cleanup()
-        if config_rollback and self.command_list:
-            self.limits_rollback()
-        if self.sshshell:
+        if (
+            self.use_shell
+            and self.sshshell._chan is not None
+            and not self.sshshell._chan.closed
+            or not self.use_shell
+            and self.sshshell._transport is not None
+            and self.sshshell._transport.active
+        ):
+            if self.rm_remote_tmp:
+                self.remote_cleanup()
+            if config_rollback and self.command_list:
+                self.limits_rollback()
             print(f"\r{pad_string('closing device connection')}")
             self.sshshell.close()
-        if hard_close:
+        if self.hard_close:
             try:
                 shutil.rmtree(self.local_tmpdir)
             except PermissionError:
@@ -465,13 +471,13 @@ class SplitCopyShared:
         """
         logger.info("entering mkdir_remote()")
         time_stamp = datetime.datetime.strftime(datetime.datetime.now(), "%y%m%d%H%M%S")
-        remote_tmpdir = f"{remote_dir}/splitcopy_{remote_file}.{time_stamp}"
-        result, stdout = self.sshshell.run(f"mkdir -p {remote_tmpdir}")
+        self.remote_tmpdir = f"{remote_dir}/splitcopy_{remote_file}.{time_stamp}"
+        result, stdout = self.ssh_cmd(f"mkdir -p {self.remote_tmpdir}")
         if not result:
-            err = f"unable to create the tmp directory {remote_tmpdir} on remote host"
+            err = f"unable to create the tmp directory {self.remote_tmpdir} on remote host"
             self.close(err_str=err)
         self.rm_remote_tmp = True
-        return remote_tmpdir
+        return self.remote_tmpdir
 
     def storage_check_remote(self, file_size, split_size, remote_dir):
         """checks whether there is enough storage space on remote node
@@ -486,7 +492,7 @@ class SplitCopyShared:
         logger.info("entering storage_check_remote()")
         avail_blocks = 0
         print("checking remote storage...")
-        result, stdout = self.sshshell.run(f"df -k {remote_dir}")
+        result, stdout = self.ssh_cmd(f"df -k {remote_dir}")
         if not result:
             self.close(err_str="failed to determine remote disk space available")
         try:
@@ -620,7 +626,7 @@ class SplitCopyShared:
         cli_config = ""
         limits_str = "|".join(limits)
         for stanza in config_stanzas:
-            result, stdout = self.sshshell.run(
+            result, stdout = self.ssh_cmd(
                 f"cli -c 'show configuration {stanza} | display set | "
                 f'grep "{limits_str}" | no-more\'',
             )
@@ -664,7 +670,7 @@ class SplitCopyShared:
         if self.command_list:
             print("rate-limit/connection-limit/login retry-options configuration found")
             logger.info(self.command_list)
-            result, stdout = self.sshshell.run(
+            result, stdout = self.ssh_cmd(
                 f'cli -c "edit;{"".join(self.command_list)}commit and-quit"',
                 exitcode=False,
                 timeout=60,
@@ -672,7 +678,7 @@ class SplitCopyShared:
             # cli always returns true so can't use exitcode
             if re.search(r"commit complete\r\nExiting configuration mode", stdout):
                 print("configuration has been modified. deactivated the relevant lines")
-                self.sshshell.run(
+                self.ssh_cmd(
                     "logger 'splitcopy has made the following config changes: "
                     f"{''.join(self.command_list)}'",
                     exitcode=False,
@@ -692,7 +698,7 @@ class SplitCopyShared:
         logger.info("entering limits_rollback()")
         rollback_cmds = "".join(self.command_list)
         rollback_cmds = re.sub("deactivate", "activate", rollback_cmds)
-        result, stdout = self.sshshell.run(
+        result, stdout = self.ssh_cmd(
             f'cli -c "edit;{rollback_cmds}commit and-quit"',
             exitcode=False,
             timeout=60,
@@ -700,7 +706,7 @@ class SplitCopyShared:
         # cli always returns true so can't use exitcode
         if re.search(r"commit complete\r\nExiting configuration mode", stdout):
             print("configuration changes made have been reverted")
-            self.sshshell.run(
+            self.ssh_cmd(
                 "logger 'splitcopy has reverted config changes'",
                 exitcode=False,
             )
@@ -721,6 +727,7 @@ class SplitCopyShared:
         :return None:
         """
         logger.info("entering remote_cleanup()")
+        result = False
         if remote_dir:
             self.remote_dir = remote_dir
         if remote_file:
@@ -729,16 +736,89 @@ class SplitCopyShared:
             print(f"\r{pad_string('deleting remote tmp directory...')}")
         if self.remote_tmpdir is None:
             if self.copy_op == "get":
-                self.sshshell.run(f"rm -rf /var/tmp/splitcopy_{self.remote_file}.*")
+                result, stdout = self.ssh_cmd(
+                    f"rm -rf /var/tmp/splitcopy_{self.remote_file}.*"
+                )
             else:
-                self.sshshell.run(
+                result, stdout = self.ssh_cmd(
                     f"rm -rf {self.remote_dir}/splitcopy_{self.remote_file}.*"
                 )
         else:
-            result, stdout = self.sshshell.run(f"rm -rf {self.remote_tmpdir}")
+            result, stdout = self.ssh_cmd(f"rm -rf {self.remote_tmpdir}")
             if not result and not silent:
                 print(
                     f"unable to delete the tmp directory {self.remote_tmpdir} on remote host, "
                     "delete it manually"
                 )
         self.rm_remote_tmp = False
+        return result
+
+    def enter_shell(self):
+        """in order to drop into shell from cli mode, a pty and interactive shell are required
+        :return result:
+        :type bool:
+        """
+        try:
+            # request a channel
+            self.sshshell.channel_open()
+            # request a pty and an interactive shell session
+            self.sshshell.invoke_shell()
+            # remove the welcome message from the socket
+            self.sshshell.stdout_read(timeout=30)
+        except SSHException as err:
+            self.close(err_str=err)
+        # enter shell mode
+        result, stdout = self.ssh_cmd("start shell", exitcode=False)
+        return result
+
+    def ssh_cmd(
+        self, cmd, timeout=30, exitcode=True, combine=False, retry=True, count=0
+    ):
+        """wrapper around functions that send a cmd to a remote host.
+        which function gets called depends on whether an interactive shell is in use.
+        if exitcode is True will check its exit status
+        :param cmd: cmd to run on remote host
+        :type string:
+        :param timeout: amount of time before timeout is raised
+        :type float:
+        :param exitcode: toggles whether to check for exit status or not
+        :type bool:
+        :return result: whether successful or not
+        :type bool:
+        :return stdout: the output of the command
+        :type string:
+        """
+        result = False
+        stdout = ""
+        logger.debug(cmd)
+        try:
+            if self.use_shell:
+                result, stdout = self.sshshell.shell_cmd(cmd, timeout, exitcode)
+            else:
+                result, stdout = self.sshshell.exec_cmd(cmd, timeout, combine)
+            logger.debug(result)
+        except TimeoutError:
+            count += 1
+            timeout = timeout * 2
+            if self.use_shell:
+                # channel is now unusable, close it and open a new channel
+                self.sshshell.close_channel()
+                self.enter_shell()
+            if retry:
+                if count == 3:
+                    self.close(err_str="cmd timed out")
+                print(
+                    f"cmd '{cmd}' timed out, retrying with a timeout of {timeout} secs"
+                )
+                result, stdout = self.ssh_cmd(
+                    cmd,
+                    timeout=timeout,
+                    exitcode=exitcode,
+                    combine=combine,
+                    count=count,
+                )
+        except SSHException as err:
+            self.close(err_str=f"ssh exception '{err}' raised while running '{cmd}'")
+        except OSError as err:
+            self.close(err_str=f"OSError exception raised while running '{cmd}'")
+        return result, stdout
