@@ -486,7 +486,9 @@ class SplitCopyPut:
                 with scp_lib(transport) as scpclient:
                     scpclient.put("join.sh", f"{remote_tmpdir}/join.sh")
             result, stdout = self.scs.ssh_cmd(
-                f"sh {remote_tmpdir}/join.sh", timeout=600
+                f"sh {remote_tmpdir}/join.sh",
+                timeout=600,
+                retry=False,
             )
         except Exception as err:
             logger.debug("".join(traceback.format_exception(*sys.exc_info())))
