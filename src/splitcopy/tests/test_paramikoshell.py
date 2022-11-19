@@ -919,5 +919,5 @@ class TestParamikoShell:
 
         paramikoshell = SSHShell()
         monkeypatch.setattr(paramikoshell, "_transport", MockTransport)
-        with raises(TimeoutError):
+        with raises(socket.timeout):
             paramikoshell.exec_cmd("foo", timeout=30, combine=True)
