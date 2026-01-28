@@ -275,13 +275,26 @@ class SplitCopyShared:
         result, stdout = self.ssh_cmd("sshd -v", exitcode=False, combine=True)
         if self.use_shell:
             if not re.search(r"OpenSSH_", stdout):
-                self.close(err_str="failed to determine remote openssh version")
-            output = stdout.split("\n")[2]
+                result, stdout = self.ssh_cmd("sshd -V", exitcode=False, combine=True)
+                if not re.search(r"OpenSSL ", stdout):
+                    self.close(err_str="failed to determine remote openssh version")
+                else:
+                    output = stdout.split("\n")[1]
+            else:
+                output = stdout.split("\n")[2]
         else:
             if not re.search(r"OpenSSH_", stdout):
-                self.close(err_str="failed to determine remote openssh version")
-            output = stdout.split("\n")[1]
-        version = re.sub(r"OpenSSH_", "", output)
+                result, stdout = self.ssh_cmd("sshd -V", exitcode=False, combine=True)
+                if not re.search(r"OpenSSL ", stdout):
+                    self.close(err_str="failed to determine remote openssh version")
+                else:
+                    output = stdout.split("\n")[0]
+            else:
+                output = stdout.split("\n")[1]
+        if re.search(r"OpenSSH_", output):
+            version = re.sub(r"OpenSSH_", "", output)
+        else:
+            version = re.sub(r".*OpenSSL ","", output)
         sshd_version = float(version[0:3])
         return sshd_version
 
