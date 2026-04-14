@@ -158,6 +158,7 @@ class TestParamikoShell:
             paramikoshell.get_pkey_from_file("EC", "/homes/foo/.ssh/bar")
 
     import paramiko
+    import pytest
     dss_key_available = hasattr(paramiko, "DSSKey")
     @pytest.mark.skipif(not dss_key_available, reason="paramiko.DSSKey not available (removed in paramiko 3.x)")
     def test_get_pkey_from_file_dsa(self, monkeypatch: MonkeyPatch):
