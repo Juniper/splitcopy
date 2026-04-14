@@ -44,3 +44,4 @@ jobs:
       with:
         name: code-coverage-report
         path: htmlcov/
+        overwrite: true
