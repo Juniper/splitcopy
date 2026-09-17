@@ -37,8 +37,7 @@ class TestFTP:
         def quit(self):
             pass
 
-        monkeypatch.setattr(logging, "getLogger", mockgetlogger)
-        monkeypatch.setattr("logging.Logger", MockLogger)
+        monkeypatch.setattr("splitcopy.ftp.logging.getLogger", mockgetlogger)
         monkeypatch.setattr("ftplib.FTP", mockFTP)
         monkeypatch.setattr(FTP, "quit", quit)
         ftp = init_ftp()
