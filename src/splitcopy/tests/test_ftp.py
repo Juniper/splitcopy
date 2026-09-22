@@ -5,27 +5,9 @@ from pytest import MonkeyPatch
 from splitcopy.ftp import FTP
 
 
-class MockLogger:
-    def __init__(self):
-        self.level = 10
-
-    def getEffectiveLevel(self):
-        return self.level
-
-    def removeHandler(self, hdlr):
-        pass
-
-    def addHandler(self, hdlr):
-        pass
-
-
 class mockFTP:
     def __init__(self, **kwargs):
         return None
-
-
-def mockgetlogger(name=None):
-    return MockLogger()
 
 
 def init_ftp(file_size=None, progress=None, **kwargs):
@@ -37,8 +19,9 @@ class TestFTP:
         def quit(self):
             pass
 
-        monkeypatch.setattr(logging, "getLogger", mockgetlogger)
-        monkeypatch.setattr("logging.Logger", MockLogger)
+        # patch only the method used, rather than replacing logging.getLogger/Logger
+        # globally, which corrupts pytest's own logging plugin state across tests
+        monkeypatch.setattr(logging.Logger, "getEffectiveLevel", lambda self: 10)
         monkeypatch.setattr("ftplib.FTP", mockFTP)
         monkeypatch.setattr(FTP, "quit", quit)
         ftp = init_ftp()
